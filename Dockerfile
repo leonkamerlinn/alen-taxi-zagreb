@@ -1,17 +1,26 @@
-FROM nginx:alpine
+# Stage 1: Build
+FROM node:20-alpine AS build
 
-# Copy the static website files
-COPY index.html /usr/share/nginx/html/
+RUN corepack enable && corepack prepare pnpm@latest --activate
 
-# Copy nginx configuration
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+WORKDIR /app
 
-# Expose port 8080 (Cloud Run requirement)
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+
+COPY . .
+RUN pnpm build
+
+# Stage 2: Production
+FROM node:20-alpine
+
+WORKDIR /app
+
+COPY --from=build /app/.output ./.output
+
+ENV PORT=8080
+ENV HOST=0.0.0.0
+
 EXPOSE 8080
 
-# Start nginx
-CMD ["nginx", "-g", "daemon off;"]
-
-
-
-
+CMD ["node", ".output/server/index.mjs"]
