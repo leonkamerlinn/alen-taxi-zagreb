@@ -3,9 +3,14 @@ export default defineNuxtConfig({
 
   modules: ['@nuxtjs/tailwindcss'],
 
+  tailwindcss: {
+    cssPath: '~/assets/css/main.css',
+  },
+
   app: {
     head: {
       htmlAttrs: { lang: 'hr' },
+      bodyAttrs: { class: 'bg-taxi-dark text-white overflow-x-hidden' },
       charset: 'utf-8',
       viewport: 'width=device-width, initial-scale=1',
       title: 'Taxi Zagreb - Brzi i pouzdani prijevoz',
