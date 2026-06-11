@@ -2,12 +2,35 @@
 @tailwind components;
 @tailwind utilities;
 
-* {
-  scroll-behavior: smooth;
+:root {
+  color-scheme: dark;
+}
+
+html {
+  background-color: #0D0D0D;
+  /* Keep anchor targets clear of the fixed h-20 navbar (native jumps + scrollIntoView) */
+  scroll-padding-top: 5rem;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
 }
 
 body {
   font-family: 'Outfit', sans-serif;
+}
+
+/* Visible keyboard focus on the dark theme */
+a:focus-visible,
+button:focus-visible {
+  outline: 2px solid #F7C600;
+  outline-offset: 3px;
+}
+
+.bg-taxi-yellow:focus-visible {
+  outline-color: #fff;
 }
 
 /* Custom scrollbar */
@@ -26,7 +49,7 @@ body {
 
 /* Gradient text */
 .gradient-text {
-  background: linear-gradient(135deg, #F7C600 0%, #D4A900 100%);
+  background: linear-gradient(135deg, #FFDD55 0%, #D4A900 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -40,26 +63,7 @@ body {
     radial-gradient(circle at 40% 80%, rgba(247, 198, 0, 0.05) 0%, transparent 40%);
 }
 
-/* Animated gradient border */
-.gradient-border {
-  position: relative;
-  background: #1A1A1A;
-}
-
-.gradient-border::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  padding: 2px;
-  background: linear-gradient(135deg, #F7C600, #D4A900, #F7C600);
-  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-}
-
-/* Pulse animation for WhatsApp button */
+/* Pulse ring for the floating WhatsApp button */
 @keyframes pulse-ring {
   0% {
     transform: scale(0.8);
@@ -71,17 +75,12 @@ body {
   }
 }
 
-.whatsapp-pulse::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  background: #25D366;
+.whatsapp-pulse-ring {
   animation: pulse-ring 1.5s ease-out infinite;
-  z-index: -1;
 }
 
-/* Fade in animation */
+/* Fade in animation. The pre-animation hidden state lives here (not as a static
+   opacity-0 utility in markup) so content stays visible when animations are off. */
 @keyframes fadeInUp {
   from {
     opacity: 0;
@@ -93,29 +92,33 @@ body {
   }
 }
 
-.animate-fade-in-up {
-  animation: fadeInUp 0.6s ease-out forwards;
+@media (prefers-reduced-motion: no-preference) {
+  .animate-fade-in-up {
+    opacity: 0;
+    animation: fadeInUp 0.5s ease-out forwards;
+  }
 }
 
 .animation-delay-200 {
-  animation-delay: 0.2s;
+  animation-delay: 0.1s;
 }
 
 .animation-delay-400 {
-  animation-delay: 0.4s;
+  animation-delay: 0.2s;
 }
 
 .animation-delay-600 {
-  animation-delay: 0.6s;
+  animation-delay: 0.3s;
 }
 
-/* Service card hover effect */
+/* Service card hover effect — `translate` composes with any filled animation
+   transform, so the lift works even right after the entrance animation */
 .service-card {
-  transition: all 0.3s ease;
+  transition: translate 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease, background-color 0.3s ease;
 }
 
 .service-card:hover {
-  transform: translateY(-8px);
+  translate: 0 -8px;
   box-shadow: 0 20px 40px rgba(247, 198, 0, 0.15);
 }
 
@@ -135,6 +138,19 @@ body {
   transition: width 0.3s ease;
 }
 
-.nav-link:hover::after {
+.nav-link:hover::after,
+.nav-link:focus-visible::after {
   width: 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    /* Near-zero duration instead of `animation: none` so `forwards` fills still
+       apply and entrance-animated content ends up visible */
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

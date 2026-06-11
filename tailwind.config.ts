@@ -9,6 +9,7 @@ export default <Config>{
         'taxi-gold': '#D4A900',
         'taxi-dark': '#0D0D0D',
         'taxi-darker': '#070707',
+        'taxi-surface': '#151515',
         'taxi-gray': '#1A1A1A',
         'taxi-light': '#2A2A2A',
       },

@@ -17,15 +17,19 @@ export default defineNuxtConfig({
       bodyAttrs: { class: 'bg-taxi-dark text-white overflow-x-hidden' },
       charset: 'utf-8',
       viewport: 'width=device-width, initial-scale=1',
-      title: 'Taxi Zagreb - Brzi i pouzdani prijevoz',
+      title: 'Taxi Zagreb — Prijevoz 24/7 | Zračna luka, gradske i noćne vožnje',
       meta: [
-        { name: 'description', content: 'Taxi Zagreb - Vaša sigurna i pouzdana vožnja u Zagrebu. Brzi prijevoz do aerodroma, gradski i poslovni prijevoz.' },
         { name: 'google-site-verification', content: 'vkei09H2wMFcaCXdJEM7Ezgk6ihlaKCtJttnJIUFYpw' },
+        { name: 'theme-color', content: '#0D0D0D' },
+        { name: 'color-scheme', content: 'dark' },
       ],
       link: [
         { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
         { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: '' },
-        { href: 'https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap', rel: 'stylesheet' },
+        { href: 'https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap', rel: 'stylesheet' },
+        { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' },
+        { rel: 'icon', type: 'image/png', sizes: '32x32', href: '/favicon-32.png' },
+        { rel: 'apple-touch-icon', sizes: '180x180', href: '/apple-touch-icon.png' },
       ],
       script: [
         { src: 'https://www.googletagmanager.com/gtag/js?id=AW-17804137574', async: true },

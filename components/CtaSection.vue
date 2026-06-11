@@ -1,7 +1,7 @@
 <template>
-  <section class="relative py-24 bg-gradient-to-br from-taxi-yellow to-taxi-gold overflow-hidden">
+  <section id="kontakt" class="relative py-24 bg-gradient-to-br from-taxi-yellow to-taxi-gold overflow-hidden">
     <!-- Background pattern -->
-    <div class="absolute inset-0 opacity-10">
+    <div class="absolute inset-0 opacity-10" aria-hidden="true">
       <svg class="w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
         <defs>
           <pattern id="grid" width="10" height="10" patternUnits="userSpaceOnUse">
@@ -17,19 +17,42 @@
         Spremni za vožnju?
       </h2>
       <p class="text-taxi-dark/80 text-lg mb-10 max-w-2xl mx-auto">
-        Kontaktirajte nas putem WhatsApp-a i naručite svoj taxi u samo nekoliko sekundi.
-        Brzo, jednostavno i pouzdano!
+        Pošaljite poruku na WhatsApp ili nas jednostavno nazovite —
+        recite nam polazište i taxi kreće prema vama.
       </p>
 
+      <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
+        <a
+          :href="whatsappLink()"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="inline-flex items-center gap-3 bg-taxi-dark hover:bg-taxi-darker text-white px-10 py-5 rounded-full font-bold text-xl transition-all duration-300 hover:scale-105 active:scale-95 shadow-2xl"
+        >
+          <IconWhatsApp class="w-8 h-8" />
+          Naručite taxi
+        </a>
+
+        <a
+          :href="telHref"
+          class="inline-flex items-center gap-3 border-2 border-taxi-dark text-taxi-dark px-10 py-5 rounded-full font-bold text-xl transition-all duration-300 hover:bg-taxi-dark hover:text-white active:scale-95"
+        >
+          <IconPhone class="w-6 h-6" />
+          {{ phoneDisplay }}
+        </a>
+      </div>
+
       <a
-        href="https://wa.me/385957703853"
-        target="_blank"
-        rel="noopener noreferrer"
-        class="inline-flex items-center gap-3 bg-taxi-dark hover:bg-taxi-darker text-white px-10 py-5 rounded-full font-bold text-xl transition-all duration-300 hover:scale-105 shadow-2xl"
+        :href="viberHref"
+        class="inline-flex items-center gap-2 mt-8 text-taxi-dark/80 hover:text-taxi-dark font-semibold transition-colors py-2"
       >
-        <IconWhatsApp class="w-8 h-8" />
-        Naruči Taxi Sada
+        <IconViber class="w-5 h-5" />
+        Imate Viber? Naručite putem Vibera
+        <IconArrowRight class="w-4 h-4" />
       </a>
     </div>
   </section>
 </template>
+
+<script setup lang="ts">
+const { telHref, phoneDisplay, whatsappLink, viberHref } = useContact()
+</script>

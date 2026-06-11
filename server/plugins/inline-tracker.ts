@@ -2,7 +2,8 @@ const TRACKER_URL = 'https://us-central1-angular-scaffold.cloudfunctions.net/ser
 
 async function fetchTrackerScript(): Promise<string> {
   try {
-    const response = await fetch(TRACKER_URL)
+    // Hard cap so a slow tracker origin can never stall page rendering
+    const response = await fetch(TRACKER_URL, { signal: AbortSignal.timeout(1500) })
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     return await response.text()
   } catch (e) {
