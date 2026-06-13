@@ -38,8 +38,16 @@ export default defineNuxtConfig({
   },
 
   runtimeConfig: {
+    // Server-only secrets (set via env / Secret Manager; never exposed to the browser)
+    fingerprintSecretApiKey: '', // NUXT_FINGERPRINT_SECRET_API_KEY
+    adminPassword: '', // NUXT_ADMIN_PASSWORD
+    sessionSecret: '', // NUXT_SESSION_SECRET (random 32+ bytes)
     public: {
       gtagId: 'AW-17804137574',
+      fingerprintPublicApiKey: '', // NUXT_PUBLIC_FINGERPRINT_PUBLIC_API_KEY
+      fingerprintRegion: 'eu', // NUXT_PUBLIC_FINGERPRINT_REGION (eu | us | ap)
+      fingerprintEndpoint: '', // NUXT_PUBLIC_FINGERPRINT_ENDPOINT (custom subdomain, optional)
+      fingerprintScriptUrlPattern: '', // NUXT_PUBLIC_FINGERPRINT_SCRIPT_URL_PATTERN (optional)
     },
   },
 
