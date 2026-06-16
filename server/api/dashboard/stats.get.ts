@@ -8,6 +8,21 @@ import { searchEvents, mapEvent, type VisitRow } from '../../utils/fingerprint'
 const CACHE_TTL = 60_000
 const MAX_EVENTS = 2000
 const PAGE_SIZE = 100
+const VISITOR_LIST_MAX = 200
+
+interface VisitorSummary {
+  visitorId: string
+  visits: number
+  lastSeen: number
+  firstSeen: number
+  city: string | null
+  country: string | null
+  browser: string | null
+  os: string | null
+  bot: 'notDetected' | 'good' | 'bad' | null
+  incognito: boolean | null
+  isNew: boolean
+}
 
 let cache: { key: string; at: number; data: any } | null = null
 
@@ -71,6 +86,7 @@ function aggregate(rows: VisitRow[], days: number, start: number) {
   const pages = new Map<string, number>()
   const countries = new Map<string, number>()
   const byDay = new Map<string, number>()
+  const visitors = new Map<string, VisitorSummary>()
 
   // Pre-seed continuous day buckets so the chart has no gaps.
   for (let i = 0; i < days; i++) {
@@ -92,10 +108,46 @@ function aggregate(rows: VisitRow[], days: number, start: number) {
 
     const k = dayKey(new Date(r.time))
     if (byDay.has(k)) byDay.set(k, (byDay.get(k) || 0) + 1)
+
+    // Per-visitor rollup. Rows arrive newest-first, but guard with the timestamp
+    // so the summary always reflects the visitor's most recent event.
+    const v = visitors.get(r.visitorId)
+    if (!v) {
+      visitors.set(r.visitorId, {
+        visitorId: r.visitorId,
+        visits: 1,
+        lastSeen: r.time,
+        firstSeen: r.time,
+        city: r.geo.city,
+        country: r.geo.country,
+        browser: r.browser,
+        os: r.os,
+        bot: r.bot,
+        incognito: r.incognito,
+        isNew: false,
+      })
+    } else {
+      v.visits++
+      if (r.time < v.firstSeen) v.firstSeen = r.time
+      if (r.time > v.lastSeen) {
+        v.lastSeen = r.time
+        v.city = r.geo.city
+        v.country = r.geo.country
+        v.browser = r.browser
+        v.os = r.os
+        v.bot = r.bot
+        v.incognito = r.incognito
+      }
+    }
   }
 
   // A visitor counted as new must not also count as returning.
   for (const id of newIds) returningIds.delete(id)
+  for (const v of visitors.values()) v.isNew = newIds.has(v.visitorId)
+
+  const visitorList = [...visitors.values()]
+    .sort((a, b) => b.lastSeen - a.lastSeen)
+    .slice(0, VISITOR_LIST_MAX)
 
   return {
     configured: true,
@@ -110,5 +162,7 @@ function aggregate(rows: VisitRow[], days: number, start: number) {
     topPages: topN(pages, 8),
     byCountry: topN(countries, 8),
     byDay: [...byDay.entries()].map(([date, count]) => ({ date, count })),
+    visitors: visitorList,
+    visitorsShown: visitorList.length,
   }
 }

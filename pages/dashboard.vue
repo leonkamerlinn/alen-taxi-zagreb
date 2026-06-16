@@ -117,6 +117,64 @@
           </div>
         </section>
 
+        <!-- Unique visitors -->
+        <section class="mt-6 rounded-2xl border border-taxi-light bg-taxi-gray/50 p-5">
+          <div class="mb-4 flex items-center justify-between">
+            <h2 class="text-sm font-semibold text-gray-300">Jedinstveni posjetitelji</h2>
+            <span class="text-xs text-gray-500">
+              {{ stats?.visitorsShown ?? 0 }} od {{ stats?.uniqueVisitors ?? 0 }}
+            </span>
+          </div>
+          <p class="mb-3 text-xs text-gray-500">Kliknite posjetitelja za njegovu vremensku crtu.</p>
+          <div class="max-h-96 overflow-y-auto overflow-x-auto">
+            <table class="w-full min-w-[680px] text-left text-sm">
+              <thead class="sticky top-0 bg-taxi-gray text-xs uppercase tracking-wider text-gray-500">
+                <tr class="border-b border-taxi-light">
+                  <th class="py-2 pr-3 font-medium">Posjetitelj</th>
+                  <th class="py-2 pr-3 font-medium text-right">Posjeta</th>
+                  <th class="py-2 pr-3 font-medium">Zadnje viđen</th>
+                  <th class="py-2 pr-3 font-medium">Lokacija</th>
+                  <th class="py-2 pr-3 font-medium">Uređaj</th>
+                  <th class="py-2 pr-0 font-medium">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="v in stats?.visitors ?? []"
+                  :key="v.visitorId"
+                  class="cursor-pointer border-b border-taxi-light/40 hover:bg-taxi-light/20"
+                  @click="openVisitor(v.visitorId)"
+                >
+                  <td class="py-2 pr-3 font-mono text-xs text-taxi-yellow">
+                    {{ shortId(v.visitorId) }}
+                    <span v-if="v.incognito" class="ml-1 text-[10px] text-gray-500">(incognito)</span>
+                  </td>
+                  <td class="py-2 pr-3 text-right font-semibold">{{ v.visits }}</td>
+                  <td class="py-2 pr-3 whitespace-nowrap text-gray-400">{{ fmtTime(v.lastSeen) }}</td>
+                  <td class="py-2 pr-3 text-gray-300">
+                    {{ [v.city, v.country].filter(Boolean).join(', ') || '—' }}
+                  </td>
+                  <td class="py-2 pr-3 text-gray-400">
+                    <div>{{ v.browser || '—' }}</div>
+                    <div class="text-xs text-gray-500">{{ v.os }}</div>
+                  </td>
+                  <td class="py-2 pr-0">
+                    <span
+                      class="rounded px-2 py-0.5 text-[10px] font-semibold"
+                      :class="v.isNew ? 'bg-taxi-yellow/20 text-taxi-yellow' : 'bg-blue-500/20 text-blue-300'"
+                    >
+                      {{ v.isNew ? 'novi' : 'povratni' }}
+                    </span>
+                  </td>
+                </tr>
+                <tr v-if="!(stats?.visitors?.length)">
+                  <td colspan="6" class="py-8 text-center text-gray-500">Još nema posjetitelja.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
         <!-- Recent visits table -->
         <section class="mt-6 rounded-2xl border border-taxi-light bg-taxi-gray/50 p-5">
           <h2 class="mb-4 text-sm font-semibold text-gray-300">Nedavne posjete</h2>
