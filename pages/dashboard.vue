@@ -137,8 +137,15 @@
               <tbody>
                 <tr v-for="r in rows" :key="r.requestId" class="border-b border-taxi-light/40 hover:bg-taxi-light/20">
                   <td class="py-2 pr-3 whitespace-nowrap text-gray-400">{{ fmtTime(r.time) }}</td>
-                  <td class="py-2 pr-3 font-mono text-xs text-gray-300">
-                    {{ shortId(r.visitorId) }}
+                  <td class="py-2 pr-3 font-mono text-xs">
+                    <button
+                      type="button"
+                      class="text-taxi-yellow hover:underline"
+                      :title="`Prikaži vremensku crtu — ${r.visitorId}`"
+                      @click="openVisitor(r.visitorId)"
+                    >
+                      {{ shortId(r.visitorId) }}
+                    </button>
                     <span v-if="r.incognito" class="ml-1 text-[10px] text-gray-500">(incognito)</span>
                   </td>
                   <td class="py-2 pr-3 text-gray-300">
@@ -182,6 +189,64 @@
           </div>
         </section>
       </template>
+
+      <!-- Visitor timeline slide-over -->
+      <div v-if="panelOpen" class="fixed inset-0 z-10 bg-black/50" @click="closeVisitor" />
+      <aside
+        v-if="panelOpen"
+        class="fixed inset-y-0 right-0 z-20 flex w-full max-w-md flex-col border-l border-taxi-light bg-taxi-darker shadow-2xl"
+      >
+        <header class="flex items-start justify-between gap-3 border-b border-taxi-light px-5 py-4">
+          <div class="min-w-0">
+            <p class="text-xs uppercase tracking-wider text-gray-400">Vremenska crta posjetitelja</p>
+            <p class="mt-1 break-all font-mono text-xs text-taxi-yellow">{{ panelVisitorId }}</p>
+            <p v-if="panelRows.length" class="mt-1 text-xs text-gray-500">
+              {{ panelRows.length }} {{ panelRows.length === 1 ? 'događaj' : 'događaja' }} ·
+              {{ fmtTime(panelRows.at(-1)?.time) }} – {{ fmtTime(panelRows[0]?.time) }}
+            </p>
+          </div>
+          <button
+            type="button"
+            class="rounded-full border border-taxi-light px-3 py-1 text-sm text-gray-300 transition hover:border-taxi-yellow hover:text-white"
+            @click="closeVisitor"
+          >
+            Zatvori
+          </button>
+        </header>
+
+        <div class="flex-1 overflow-y-auto px-5 py-4">
+          <p v-if="panelLoading" class="py-8 text-center text-sm text-gray-500">Učitavanje…</p>
+          <p v-else-if="panelError" class="py-8 text-center text-sm text-red-300">{{ panelError }}</p>
+          <p v-else-if="!panelRows.length" class="py-8 text-center text-sm text-gray-500">
+            Nema dodatnih događaja.
+          </p>
+          <ol v-else class="space-y-3">
+            <li
+              v-for="r in panelRows"
+              :key="r.requestId"
+              class="rounded-xl border border-taxi-light bg-taxi-gray/50 p-3"
+            >
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-xs text-gray-400">{{ fmtTime(r.time) }}</span>
+                <span class="rounded px-2 py-0.5 text-[10px] font-semibold" :class="botClass(r.bot)">
+                  {{ botLabel(r.bot) }}
+                </span>
+              </div>
+              <p class="mt-1 truncate text-sm text-gray-200" :title="r.page?.path || r.url || ''">
+                {{ r.page?.path || '—' }}
+              </p>
+              <div class="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-gray-400">
+                <span>{{ [r.geo?.city, r.geo?.country].filter(Boolean).join(', ') || '—' }}</span>
+                <span v-if="r.vpn" class="rounded bg-orange-500/20 px-1 text-orange-300">VPN</span>
+                <span>{{ r.browser || '—' }}<template v-if="r.os"> · {{ r.os }}</template></span>
+              </div>
+              <p class="mt-0.5 truncate text-xs text-gray-500" :title="sourceLabel(r)">
+                {{ sourceLabel(r) }}
+              </p>
+            </li>
+          </ol>
+        </div>
+      </aside>
     </main>
   </div>
 </template>
@@ -215,6 +280,36 @@ async function loadMore() {
   } finally {
     loadingMore.value = false
   }
+}
+
+const panelOpen = ref(false)
+const panelLoading = ref(false)
+const panelError = ref<string | null>(null)
+const panelVisitorId = ref<string | null>(null)
+const panelRows = ref<any[]>([])
+
+async function openVisitor(id: string) {
+  if (!id) return
+  panelOpen.value = true
+  panelVisitorId.value = id
+  panelRows.value = []
+  panelError.value = null
+  panelLoading.value = true
+  try {
+    const res = await $fetch<any>(`/api/dashboard/visitor/${encodeURIComponent(id)}`)
+    panelRows.value = res?.rows ?? []
+  } catch {
+    panelError.value = 'Greška pri dohvaćanju vremenske crte.'
+  } finally {
+    panelLoading.value = false
+  }
+}
+
+function closeVisitor() {
+  panelOpen.value = false
+  panelVisitorId.value = null
+  panelRows.value = []
+  panelError.value = null
 }
 
 async function logout() {
