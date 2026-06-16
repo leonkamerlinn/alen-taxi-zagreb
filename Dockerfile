@@ -1,7 +1,7 @@
 # Stage 1: Build
 FROM node:20-alpine AS build
 
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN npm install -g pnpm@9
 
 WORKDIR /app
 
