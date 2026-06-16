@@ -83,6 +83,9 @@ device id stays strong; only long‑term cookie continuity is limited).
 
 ### Option B — Cloudflare proxy integration (best Safari longevity)
 
+> **This is the chosen path for production.** A full, project‑specific runbook (real domain, region, commands,
+> verification, rollback) lives in [`FINGERPRINT_PHASE_B_CLOUDFLARE.md`](./FINGERPRINT_PHASE_B_CLOUDFLARE.md).
+
 Result: ~1‑year Safari cookies. Requires **Cloudflare in front of `<YOUR_DOMAIN>`** (change nameservers to
 Cloudflare and proxy the domain).
 
