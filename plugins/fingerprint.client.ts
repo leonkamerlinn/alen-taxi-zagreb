@@ -31,11 +31,18 @@ export default defineNuxtPlugin(async () => {
     // Attach traffic context so the event records which page/campaign it came from.
     const result = await fp.get({ tag: usePageContext() })
 
-    // Hand the requestId to our backend for authoritative, tamper-proof validation.
-    await $fetch('/api/identify', {
-      method: 'POST',
-      body: { requestId: result.requestId },
-    }).catch(() => {})
+    // Send the requestId straight to the ClickShield backend (cross-origin). It
+    // validates it server-side with the Secret API key, persists the event, and
+    // recognises returning visitors — this site has no fingerprint backend.
+    const ingestUrl = pub.clickshieldIngestUrl as string
+    if (ingestUrl) {
+      await fetch(`${ingestUrl}/api/fingerprint/ingest`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        credentials: 'omit',
+        body: JSON.stringify({ requestId: result.requestId }),
+      }).catch(() => {})
+    }
   } catch (err) {
     // Agent blocked (ad-blocker / privacy extension) or offline — fail silently.
     if (import.meta.dev) console.warn('[fingerprint] init failed:', err)
