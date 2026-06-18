@@ -4,7 +4,7 @@ A Nuxt 3 landing site for a Zagreb taxi service, with **Fingerprint Pro** device
 private, password-protected **admin analytics dashboard**.
 
 - **Live:** https://taxizagreb24.com
-- **Hosting:** Google Cloud Run (`alen-taxi-zagreb`, region `europe-west4`)
+- **Hosting:** Google Cloud Run — project `project-57147346-010b-465c-a23`, service `alen-taxi-zagreb`, region `europe-west4`
 
 ## Tech stack
 
@@ -86,6 +86,7 @@ Secret Manager:
 ```bash
 gcloud run deploy alen-taxi-zagreb \
   --source . \
+  --project project-57147346-010b-465c-a23 \
   --region europe-west4 \
   --update-env-vars 'NUXT_PUBLIC_FINGERPRINT_PUBLIC_API_KEY=AyRoy4mfOeDlCinfWqpx,NUXT_PUBLIC_FINGERPRINT_REGION=eu' \
   --update-secrets 'NUXT_FINGERPRINT_SECRET_API_KEY=fingerprint-secret-api-key:latest,NUXT_ADMIN_PASSWORD=taxi-admin-password:latest,NUXT_SESSION_SECRET=taxi-session-secret:latest'

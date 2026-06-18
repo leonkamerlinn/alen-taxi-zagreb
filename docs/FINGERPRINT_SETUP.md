@@ -117,7 +117,7 @@ browsers still accept `secure` cookies for `localhost` — if not, test against 
 
 ## Step 6 — Deploy to Cloud Run
 
-Project `project-57147346-010b-465c-a23`, service `alen-taxi-zagreb`, region `europe-west3`.
+Project `project-57147346-010b-465c-a23`, service `alen-taxi-zagreb`, region `europe-west4`.
 
 **1. Store the three secrets in Secret Manager (once):**
 
@@ -144,7 +144,8 @@ done
 ```bash
 gcloud run deploy alen-taxi-zagreb \
   --source . \
-  --region europe-west3 \
+  --project project-57147346-010b-465c-a23 \
+  --region europe-west4 \
   --set-env-vars 'NUXT_PUBLIC_FINGERPRINT_PUBLIC_API_KEY=YOUR_PUBLIC_KEY,NUXT_PUBLIC_FINGERPRINT_REGION=eu' \
   --set-secrets 'NUXT_FINGERPRINT_SECRET_API_KEY=fingerprint-secret-api-key:latest,NUXT_ADMIN_PASSWORD=taxi-admin-password:latest,NUXT_SESSION_SECRET=taxi-session-secret:latest'
 ```
