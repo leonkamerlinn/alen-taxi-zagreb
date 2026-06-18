@@ -1,116 +1,103 @@
-# Taxi Zagreb
+# Taxi Zagreb (`alen-taxi-zagreb`)
 
-A modern, responsive landing page for a taxi service operating in Zagreb, Croatia. Built with HTML and Tailwind CSS, containerized with Docker for easy deployment.
+A Nuxt 3 landing site for a Zagreb taxi service, with **Fingerprint Pro** device identification and a
+private, password-protected **admin analytics dashboard**.
 
-## Features
+- **Live:** https://taxizagreb24.com
+- **Hosting:** Google Cloud Run (`alen-taxi-zagreb`, region `europe-west4`)
 
-- **Responsive Design** - Mobile-first approach with seamless experience across all devices
-- **Modern UI** - Dark theme with vibrant yellow accents, smooth animations, and elegant typography
-- **WhatsApp Integration** - Direct booking via WhatsApp with pre-filled messages
-- **Service Showcase** - Highlighted services including airport transfers, city transport, business rides, and night service
-- **Fast Loading** - Single-page static site with CDN-loaded assets
-- **SEO Ready** - Meta tags and Google site verification configured
+## Tech stack
 
-## Tech Stack
+- **Nuxt 3** (Vue 3, SSR) · **Tailwind CSS** · **TypeScript**
+- **@fingerprintjs/fingerprintjs-pro** — browser identification agent
+- Google Fonts (Outfit) · Google Ads gtag (`plugins/gtag.client.ts`)
+- **pnpm** · **Docker** (node:20-alpine, serves on `:8080`)
 
-- **HTML5** - Semantic markup
-- **Tailwind CSS** - Utility-first styling via CDN
-- **Google Fonts** - Outfit font family
-- **Docker** - Containerized deployment
-- **nginx** - High-performance web server with gzip compression and caching
-
-## Project Structure
+## Project structure
 
 ```
 alen-taxi-zagreb/
-├── index.html      # Main landing page (all content and styling)
-├── Dockerfile      # Container configuration using nginx:alpine
-├── nginx.conf      # Web server configuration
-└── README.md       # Project documentation
+├── pages/                 # index.vue (landing) + login.vue, dashboard.vue (admin)
+├── components/            # Hero, Services, About, FAQ, WhatsApp float, CookieConsent, …
+├── composables/           # usePageContext, useConsentBanner, useContact, useNavbarScroll, …
+├── plugins/               # fingerprint.client.ts (loads the agent), gtag.client.ts
+├── server/
+│   ├── api/               # identify.post + dashboard/{events,stats,visitor} + auth/{login,logout}
+│   ├── middleware/auth.ts # gates /dashboard + /api/dashboard/*
+│   └── utils/             # fingerprint (Server API), session (cookie signing), rateLimit
+├── docs/                  # FINGERPRINT_SETUP.md, FINGERPRINT_PHASE_B_CLOUDFLARE.md
+└── nuxt.config.ts
 ```
 
-## Local Development
-
-To view the site locally, simply open `index.html` in your browser:
+## Local development
 
 ```bash
-# macOS
-open index.html
-
-# Linux
-xdg-open index.html
-
-# Windows
-start index.html
+cp example.env .env        # example.env holds the real values (gitignored); or fill .env.example
+pnpm install               # (if the pnpm shim is broken on your machine: npm install --no-package-lock)
+pnpm run dev               # http://localhost:3000
 ```
 
-Or use a local server:
+Then log in at `/login` and open `/dashboard`. With the keys unset the site still runs — fingerprinting just
+no-ops and the dashboard shows a "not configured" notice.
 
-```bash
-# Using Python
-python -m http.server 8080
+## Environment variables
 
-# Using Node.js (npx)
-npx serve .
+Nuxt maps `NUXT_*` / `NUXT_PUBLIC_*` env vars onto `runtimeConfig`. **Server-secret** vars must never reach
+the browser; **public** vars are safe to expose.
+
+| Variable | Scope | Purpose |
+|---|---|---|
+| `NUXT_FINGERPRINT_SECRET_API_KEY` | server secret | Fingerprint **Server API** auth (validates identifications) |
+| `NUXT_ADMIN_PASSWORD` | server secret | `/dashboard` login password |
+| `NUXT_SESSION_SECRET` | server secret | Signs the admin session + first-party visitor cookies (`openssl rand -hex 32`) |
+| `NUXT_PUBLIC_FINGERPRINT_PUBLIC_API_KEY` | public | Browser agent key — `AyRoy4mfOeDlCinfWqpx` (domain-locked) |
+| `NUXT_PUBLIC_FINGERPRINT_REGION` | public | Workspace region — `eu` |
+| `NUXT_PUBLIC_FINGERPRINT_ENDPOINT` | public | Optional custom first-party subdomain (Safari ITP) |
+| `NUXT_PUBLIC_FINGERPRINT_SCRIPT_URL_PATTERN` | public | Optional custom agent-script URL |
+
+Real values live in **`example.env`** (gitignored, do not commit). **`.env.example`** is the committed
+placeholder template. Secrets are never stored in git — in production they come from **Secret Manager**.
+
+> This is the **primary Fingerprint Pro workspace**; the sibling `tim-taxi-zagreb` reuses the same keys, so
+> both sites' events are pooled. The dashboard's **"Po domeni"** card + **Domena** column show which domain
+> each visit came from (derived from the event URL). See `docs/FINGERPRINT_SETUP.md`.
+
+## Fingerprint Pro & admin dashboard
+
+```
+Browser → Fingerprint agent → fp.get({ tag: page context })
+        → POST /api/identify { requestId }
+              → server looks the event up with the SECRET key (tamper-proof)
+                sets a signed, httpOnly first-party cookie (returning-visitor continuity)
+You    → /login → /dashboard
+              → server calls Fingerprint Server API → live stats + recent visits (no database)
 ```
 
-Then visit `http://localhost:8080`
+There is **no database** — the dashboard reads live from Fingerprint's Server API (history limited to
+Fingerprint's ~30-day retention). Full setup walkthrough: [`docs/FINGERPRINT_SETUP.md`](docs/FINGERPRINT_SETUP.md)
+(Safari first-party subdomain: [`docs/FINGERPRINT_PHASE_B_CLOUDFLARE.md`](docs/FINGERPRINT_PHASE_B_CLOUDFLARE.md)).
 
-## Docker Deployment
+## Deployment (Cloud Run)
 
-### Build the Image
-
-```bash
-docker build -t taxi-zagreb .
-```
-
-### Run the Container
+The container builds from the `Dockerfile` (`pnpm install --frozen-lockfile` → `pnpm build` →
+`node .output/server/index.mjs`) and serves on `:8080`. Public vars are set inline; secrets are mounted from
+Secret Manager:
 
 ```bash
-docker run -p 8080:8080 taxi-zagreb
-```
-
-The site will be available at `http://localhost:8080`
-
-## Cloud Deployment
-
-This project is configured for **Google Cloud Run** deployment:
-
-- Listens on port **8080** (Cloud Run requirement)
-- Uses lightweight `nginx:alpine` base image
-- Includes gzip compression for faster load times
-- Static asset caching enabled (1 year for CSS, JS, images, fonts)
-
-### Deploy to Cloud Run
-
-```bash
-# Build and push to Container Registry
-gcloud builds submit --tag gcr.io/PROJECT_ID/taxi-zagreb
-
-# Deploy to Cloud Run
-gcloud run deploy taxi-zagreb \
-  --image gcr.io/PROJECT_ID/taxi-zagreb \
-  --platform managed \
+gcloud run deploy alen-taxi-zagreb \
+  --source . \
   --region europe-west4 \
-  --allow-unauthenticated
+  --update-env-vars 'NUXT_PUBLIC_FINGERPRINT_PUBLIC_API_KEY=AyRoy4mfOeDlCinfWqpx,NUXT_PUBLIC_FINGERPRINT_REGION=eu' \
+  --update-secrets 'NUXT_FINGERPRINT_SECRET_API_KEY=fingerprint-secret-api-key:latest,NUXT_ADMIN_PASSWORD=taxi-admin-password:latest,NUXT_SESSION_SECRET=taxi-session-secret:latest'
 ```
 
-## Services Offered
+> Always deploy to **`europe-west4`** — that's the region the live domain maps to. See
+> `docs/FINGERPRINT_SETUP.md` for the one-time Secret Manager + IAM setup.
 
-| Service | Description |
-|---------|-------------|
-| Airport Transfer | Reliable transport to/from Zagreb Airport |
-| City Transport | Quick rides anywhere in Zagreb |
-| Business Transport | Professional service for business travelers |
-| Night Service | Safe late-night transportation |
+## Notes
 
-## Contact
-
-- **Phone**: +385 95 770 3853
-- **WhatsApp**: [Send Message](https://wa.me/385957703853)
-- **Location**: Zagreb, Croatia
-
----
-
-© 2024 Taxi Zagreb. All rights reserved.
-
+- **Fingerprinting is always-on** (every visitor). Device fingerprinting is personal data under GDPR —
+  disclose it in your privacy/cookie notice. To make it consent-gated, see the commented line in
+  `plugins/fingerprint.client.ts`.
+- **Allowlist:** for the browser agent to run on the live domain, add `https://taxizagreb24.com` (and
+  `http://localhost:3000`) to the public key's allowed origins in the Fingerprint dashboard (Security → Web).
