@@ -93,8 +93,18 @@
           </div>
         </section>
 
-        <!-- Top pages + countries -->
-        <section class="mt-6 grid gap-4 lg:grid-cols-2">
+        <!-- By domain + top pages + countries -->
+        <section class="mt-6 grid gap-4 lg:grid-cols-3">
+          <div class="rounded-2xl border border-taxi-light bg-taxi-gray/50 p-5">
+            <h2 class="mb-4 text-sm font-semibold text-gray-300">Po domeni</h2>
+            <ul class="space-y-2">
+              <li v-for="d in stats?.byDomain ?? []" :key="d.label" class="flex items-center justify-between text-sm">
+                <span class="truncate pr-3 text-gray-300">{{ d.label }}</span>
+                <span class="font-semibold text-taxi-yellow">{{ d.count }}</span>
+              </li>
+              <li v-if="!(stats?.byDomain?.length)" class="text-sm text-gray-500">Nema podataka.</li>
+            </ul>
+          </div>
           <div class="rounded-2xl border border-taxi-light bg-taxi-gray/50 p-5">
             <h2 class="mb-4 text-sm font-semibold text-gray-300">Najčešće odredišne stranice</h2>
             <ul class="space-y-2">
@@ -131,6 +141,7 @@
               <thead class="sticky top-0 bg-taxi-gray text-xs uppercase tracking-wider text-gray-500">
                 <tr class="border-b border-taxi-light">
                   <th class="py-2 pr-3 font-medium">Posjetitelj</th>
+                  <th class="py-2 pr-3 font-medium">Domena</th>
                   <th class="py-2 pr-3 font-medium text-right">Posjeta</th>
                   <th class="py-2 pr-3 font-medium">Zadnje viđen</th>
                   <th class="py-2 pr-3 font-medium">Lokacija</th>
@@ -149,6 +160,7 @@
                     {{ shortId(v.visitorId) }}
                     <span v-if="v.incognito" class="ml-1 text-[10px] text-gray-500">(incognito)</span>
                   </td>
+                  <td class="py-2 pr-3 max-w-[160px] truncate text-gray-300" :title="v.domain || ''">{{ v.domain || '—' }}</td>
                   <td class="py-2 pr-3 text-right font-semibold">{{ v.visits }}</td>
                   <td class="py-2 pr-3 whitespace-nowrap text-gray-400">{{ fmtTime(v.lastSeen) }}</td>
                   <td class="py-2 pr-3 text-gray-300">
@@ -168,7 +180,7 @@
                   </td>
                 </tr>
                 <tr v-if="!(stats?.visitors?.length)">
-                  <td colspan="6" class="py-8 text-center text-gray-500">Još nema posjetitelja.</td>
+                  <td colspan="7" class="py-8 text-center text-gray-500">Još nema posjetitelja.</td>
                 </tr>
               </tbody>
             </table>
@@ -184,6 +196,7 @@
                 <tr class="border-b border-taxi-light">
                   <th class="py-2 pr-3 font-medium">Vrijeme</th>
                   <th class="py-2 pr-3 font-medium">Posjetitelj</th>
+                  <th class="py-2 pr-3 font-medium">Domena</th>
                   <th class="py-2 pr-3 font-medium">Lokacija</th>
                   <th class="py-2 pr-3 font-medium">Uređaj</th>
                   <th class="py-2 pr-3 font-medium">Stranica</th>
@@ -205,6 +218,9 @@
                       {{ shortId(r.visitorId) }}
                     </button>
                     <span v-if="r.incognito" class="ml-1 text-[10px] text-gray-500">(incognito)</span>
+                  </td>
+                  <td class="py-2 pr-3 max-w-[160px] truncate text-gray-300" :title="r.domain || ''">
+                    {{ r.domain || '—' }}
                   </td>
                   <td class="py-2 pr-3 text-gray-300">
                     {{ [r.geo.city, r.geo.country].filter(Boolean).join(', ') || '—' }}
@@ -230,7 +246,7 @@
                   </td>
                 </tr>
                 <tr v-if="!rows.length">
-                  <td colspan="8" class="py-8 text-center text-gray-500">Još nema zabilježenih posjeta.</td>
+                  <td colspan="9" class="py-8 text-center text-gray-500">Još nema zabilježenih posjeta.</td>
                 </tr>
               </tbody>
             </table>
@@ -294,6 +310,7 @@
                 {{ r.page?.path || '—' }}
               </p>
               <div class="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-gray-400">
+                <span v-if="r.domain" class="font-medium text-taxi-yellow/80">{{ r.domain }}</span>
                 <span>{{ [r.geo?.city, r.geo?.country].filter(Boolean).join(', ') || '—' }}</span>
                 <span v-if="r.vpn" class="rounded bg-orange-500/20 px-1 text-orange-300">VPN</span>
                 <span>{{ r.browser || '—' }}<template v-if="r.os"> · {{ r.os }}</template></span>

@@ -32,6 +32,7 @@ export interface VisitRow {
   vpn: boolean | null
   firstSeenAt: number | null // ms epoch (global), null = first ever seen
   url: string | null
+  domain: string | null // host parsed from url — which site the visit came from (shared workspace)
   page: {
     path: string | null
     referrer: string | null
@@ -58,6 +59,16 @@ function parseFpTime(value: unknown): number | null {
     return Number.isNaN(t) ? null : t
   }
   return null
+}
+
+/** Extract the bare host (no scheme, no leading www.) from the event's page URL. */
+function hostFromUrl(url: unknown): string | null {
+  if (typeof url !== 'string' || !url) return null
+  try {
+    return new URL(url).hostname.replace(/^www\./, '')
+  } catch {
+    return null
+  }
 }
 
 /** Validate a single identification by its requestId. Returns the raw Server API payload. */
@@ -131,6 +142,7 @@ export function mapEvent(event: any): VisitRow | null {
     vpn: products?.vpn?.data?.result ?? null,
     firstSeenAt: parseFpTime(ident.firstSeenAt?.global),
     url: ident.url ?? null,
+    domain: hostFromUrl(ident.url),
     page: {
       path: tag.path ?? null,
       referrer: tag.referrer ?? null,

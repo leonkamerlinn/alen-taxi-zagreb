@@ -17,6 +17,7 @@ interface VisitorSummary {
   firstSeen: number
   city: string | null
   country: string | null
+  domain: string | null
   browser: string | null
   os: string | null
   bot: 'notDetected' | 'good' | 'bad' | null
@@ -85,6 +86,7 @@ function aggregate(rows: VisitRow[], days: number, start: number) {
   let bots = 0
   const pages = new Map<string, number>()
   const countries = new Map<string, number>()
+  const domainCounts = new Map<string, number>()
   const byDay = new Map<string, number>()
   const visitors = new Map<string, VisitorSummary>()
 
@@ -106,6 +108,9 @@ function aggregate(rows: VisitRow[], days: number, start: number) {
     const country = r.geo.country || '(nepoznato)'
     countries.set(country, (countries.get(country) || 0) + 1)
 
+    const domain = r.domain || '(nepoznato)'
+    domainCounts.set(domain, (domainCounts.get(domain) || 0) + 1)
+
     const k = dayKey(new Date(r.time))
     if (byDay.has(k)) byDay.set(k, (byDay.get(k) || 0) + 1)
 
@@ -120,6 +125,7 @@ function aggregate(rows: VisitRow[], days: number, start: number) {
         firstSeen: r.time,
         city: r.geo.city,
         country: r.geo.country,
+        domain: r.domain,
         browser: r.browser,
         os: r.os,
         bot: r.bot,
@@ -133,6 +139,7 @@ function aggregate(rows: VisitRow[], days: number, start: number) {
         v.lastSeen = r.time
         v.city = r.geo.city
         v.country = r.geo.country
+        v.domain = r.domain
         v.browser = r.browser
         v.os = r.os
         v.bot = r.bot
@@ -161,6 +168,7 @@ function aggregate(rows: VisitRow[], days: number, start: number) {
     capped: rows.length >= MAX_EVENTS,
     topPages: topN(pages, 8),
     byCountry: topN(countries, 8),
+    byDomain: topN(domainCounts, 8),
     byDay: [...byDay.entries()].map(([date, count]) => ({ date, count })),
     visitors: visitorList,
     visitorsShown: visitorList.length,
