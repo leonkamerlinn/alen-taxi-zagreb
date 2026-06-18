@@ -1,0 +1,50 @@
+name: Deploy
+
+# Push to main → build the container and deploy to Cloud Run (keyless via WIF).
+on:
+  push:
+    branches: [main]
+
+env:
+  PROJECT: project-57147346-010b-465c-a23
+  REGION: europe-west4
+  SERVICE: alen-taxi-zagreb
+  CLICKSHIELD_INGEST_URL: https://clickshield-web-370434332956.europe-west4.run.app
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # Workload Identity Federation
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.DEPLOY_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - name: Build & push image
+        run: |
+          IMG=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT }}/cloud-run-source-deploy/${{ env.SERVICE }}:${{ github.sha }}
+          docker build -t "$IMG" .
+          docker push "$IMG"
+
+      # `deploy` on an existing service preserves its other env vars + mounted
+      # secrets; --update-env-vars only adds the ClickShield ingest URL.
+      - name: Deploy to Cloud Run
+        run: |
+          IMG=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT }}/cloud-run-source-deploy/${{ env.SERVICE }}:${{ github.sha }}
+          gcloud run deploy ${{ env.SERVICE }} \
+            --image "$IMG" \
+            --project ${{ env.PROJECT }} \
+            --region ${{ env.REGION }} \
+            --allow-unauthenticated \
+            --update-env-vars NUXT_PUBLIC_CLICKSHIELD_INGEST_URL=${{ env.CLICKSHIELD_INGEST_URL }}
