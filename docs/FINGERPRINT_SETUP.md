@@ -15,18 +15,22 @@ each visit travels inside the event's `tag`, so nothing of ours needs to be stor
 
 ## How it works
 
-```
-Browser  →  Fingerprint agent (always-on)  →  fp.get({ tag: page context })
-            └ event recorded by Fingerprint (incl. your tag)
-         →  POST /api/identify { requestId }
-                └ server looks the event up with the SECRET key  ← tamper-proof signals
-                  sets a signed, httpOnly first-party cookie (returning-visitor continuity)
+Paid Google Ads landings only (gclid / wbraid / gbraid / gad_source / paid Google UTM).
+Organic and back/forward navigations are skipped.
 
-You      →  /login  →  /dashboard
-            └ server calls Fingerprint Server API (secret key) → live stats + recent visits
+```
+Browser  →  SSR HTML <head>: preconnect + inline boot (plugins/fingerprint-early.ts)
+              └ starts Fingerprint load/get while Nuxt chunks download
+         →  sendBeacon / keepalive POST → ClickShield /api/fingerprint/ingest
+              └ ClickShield validates requestId with the SECRET key and stores the event
+         →  plugins/fingerprint.client.ts reuses window.__csFpPromise (no double-fire)
+
+You      →  ClickShield admin / Fingerprints dashboard (source of truth is ClickShield Postgres)
 ```
 
 The Secret API key **never** reaches the browser. The browser only ever holds the Public key.
+Early head boot + beacon/keepalive exist so **sub‑1s ad bounces** are less likely to lose the
+ingest POST; a cold agent download still has a physical floor (~a few hundred ms).
 
 ---
 
@@ -197,7 +201,8 @@ fingerprinting is personal data under EU/GDPR, so:
 |---|---|
 | Dashboard shows "Fingerprint nije konfiguriran" | `NUXT_FINGERPRINT_SECRET_API_KEY` / public key not set. |
 | `/api/identify` returns `{ok:false}`, events missing | **Region mismatch** — the account region must be **EU** and `NUXT_PUBLIC_FINGERPRINT_REGION=eu`. A 404 from the Server API almost always means wrong region. |
-| No agent request in Network | An **ad‑blocker** blocked the default CDN. Set up the custom subdomain (Step 4) to load first‑party. |
+| No agent request in Network | An **ad‑blocker** blocked the default CDN. Set up the custom subdomain (Step 4) to load first‑party. Or the visit is not paid Google Ads traffic / not a fresh navigation. |
+| Instant bounce missing in ClickShield | Expected floor: agent download + identify still take hundreds of ms. Confirm early head script + beacon ingest in Network; set `NUXT_PUBLIC_CLICKSHIELD_INGEST_URL` and allow the origin in ClickShield `CORS_ORIGIN`. |
 | Safari shows fewer returning visitors | Expected with Option A (~7‑day cap). Use Option B (Cloudflare) for ~1 year. |
 | Login works locally but not in prod | Cookies are `secure` — must be served over HTTPS (Cloud Run is, by default). |
 | History older than ~30 days is gone | Expected — no database by design. Ask me to add Firestore + a webhook if you want long‑term history. |
@@ -217,10 +222,13 @@ fingerprinting is personal data under EU/GDPR, so:
 | `NUXT_PUBLIC_FINGERPRINT_REGION` | env var | `eu` |
 | `NUXT_PUBLIC_FINGERPRINT_ENDPOINT` | env var | Custom subdomain API endpoint (optional) |
 | `NUXT_PUBLIC_FINGERPRINT_SCRIPT_URL_PATTERN` | env var | Custom subdomain script URL (optional) |
+| `NUXT_PUBLIC_CLICKSHIELD_INGEST_URL` | env var | ClickShield origin for browser ingest (e.g. `https://clickshield-….run.app`) |
 
 **Key files added**
 
-- `plugins/fingerprint.client.ts` — loads the agent, identifies, posts the requestId.
+- `plugins/fingerprint-early.ts` — SSR head preconnect + inline boot for ad landings.
+- `plugins/fingerprint.client.ts` — reuses `__csFpPromise`, or fallback identify + beacon ingest.
+- `utils/fingerprint-ingest.ts` / `utils/fingerprint-early-script.ts` — beacon helper + inline script builder.
 - `composables/usePageContext.ts` — builds the page/UTM `tag`.
 - `server/api/identify.post.ts` — server‑side validation + first‑party cookie.
 - `server/api/dashboard/{stats,events}.get.ts` — dashboard data (protected).

@@ -1,7 +1,31 @@
 import { load } from '@fingerprintjs/fingerprintjs-pro'
+import { postIngest } from '~/utils/fingerprint-ingest'
+
+declare global {
+  interface Window {
+    /** Set by plugins/fingerprint-early.ts inline head boot (identify + ingest). */
+    __csFpPromise?: Promise<{ requestId: string } | null>
+  }
+}
 
 // Fire once per full page load (module-level guard; this is a single-page site).
 let identified = false
+
+const DEVICE_TOKEN_KEY = 'cs_device_token'
+
+/** First-party persistent id — survives Fingerprint visitorId rotation on iOS. */
+function getOrCreateDeviceToken(): string {
+  try {
+    let token = localStorage.getItem(DEVICE_TOKEN_KEY)
+    if (!token) {
+      token = crypto.randomUUID()
+      localStorage.setItem(DEVICE_TOKEN_KEY, token)
+    }
+    return token
+  } catch {
+    return crypto.randomUUID()
+  }
+}
 
 export default defineNuxtPlugin(async () => {
   const { public: pub } = useRuntimeConfig()
@@ -9,6 +33,16 @@ export default defineNuxtPlugin(async () => {
 
   // Not configured yet → do nothing (site keeps working).
   if (!apiKey) return
+
+  // Early head boot already started (or finished) identify + ingest — reuse it.
+  if (typeof window !== 'undefined' && window.__csFpPromise) {
+    try {
+      await window.__csFpPromise
+    } catch {
+      // Early boot failed; do not double-fire a fallback on the same load.
+    }
+    return
+  }
 
   // GOOGLE-ADS-ONLY. Fingerprint only paid Google Ads visits — saves quota on
   // organic/direct traffic and focuses events on the clicks that matter for
@@ -39,21 +73,14 @@ export default defineNuxtPlugin(async () => {
 
     // Attach traffic context so the event records which page/campaign it came from.
     const ctx = usePageContext()
-    const result = await fp.get({ tag: ctx })
+    const deviceToken = getOrCreateDeviceToken()
+    const result = await fp.get({ tag: ctx, linkedId: deviceToken })
 
-    // Send the requestId straight to the ClickShield backend (cross-origin). It
-    // validates it server-side with the Secret API key, persists the event, and
-    // recognises returning visitors — this site has no fingerprint backend. The
-    // gclid is forwarded so a fraudulent click can be tied back to the ad click.
-    const ingestUrl = pub.clickshieldIngestUrl as string
-    if (ingestUrl) {
-      await fetch(`${ingestUrl}/api/fingerprint/ingest`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        credentials: 'omit',
-        body: JSON.stringify({ requestId: result.requestId, gclid: ctx.gclid }),
-      }).catch(() => {})
-    }
+    // Beacon / keepalive so a fast bounce still delivers the requestId.
+    postIngest(pub.clickshieldIngestUrl as string, {
+      requestId: result.requestId,
+      gclid: ctx.gclid,
+    })
   } catch (err) {
     // Agent blocked (ad-blocker / privacy extension) or offline — fail silently.
     if (import.meta.dev) console.warn('[fingerprint] init failed:', err)
