@@ -7,7 +7,10 @@ on:
 
 env:
   PROJECT: project-57147346-010b-465c-a23
-  REGION: europe-west4
+  # The domain-mapped (live) service runs in europe-west1; the container registry
+  # (cloud-run-source-deploy) lives in europe-west4 — the two regions differ on purpose.
+  REGION: europe-west1
+  REGISTRY_REGION: europe-west4
   SERVICE: alen-taxi-zagreb
   CLICKSHIELD_INGEST_URL: https://clickshield-web-370434332956.europe-west4.run.app
 
@@ -29,11 +32,11 @@ jobs:
       - uses: google-github-actions/setup-gcloud@v2
 
       - name: Configure Docker for Artifact Registry
-        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+        run: gcloud auth configure-docker ${{ env.REGISTRY_REGION }}-docker.pkg.dev --quiet
 
       - name: Build & push image
         run: |
-          IMG=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT }}/cloud-run-source-deploy/${{ env.SERVICE }}:${{ github.sha }}
+          IMG=${{ env.REGISTRY_REGION }}-docker.pkg.dev/${{ env.PROJECT }}/cloud-run-source-deploy/${{ env.SERVICE }}:${{ github.sha }}
           docker build -t "$IMG" .
           docker push "$IMG"
 
@@ -41,7 +44,7 @@ jobs:
       # secrets; --update-env-vars only adds the ClickShield ingest URL.
       - name: Deploy to Cloud Run
         run: |
-          IMG=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT }}/cloud-run-source-deploy/${{ env.SERVICE }}:${{ github.sha }}
+          IMG=${{ env.REGISTRY_REGION }}-docker.pkg.dev/${{ env.PROJECT }}/cloud-run-source-deploy/${{ env.SERVICE }}:${{ github.sha }}
           gcloud run deploy ${{ env.SERVICE }} \
             --image "$IMG" \
             --project ${{ env.PROJECT }} \
