@@ -16,13 +16,15 @@ each visit travels inside the event's `tag`, so nothing of ours needs to be stor
 ## How it works
 
 Paid Google Ads landings only (gclid / wbraid / gbraid / gad_source / paid Google UTM).
-Organic and back/forward navigations are skipped.
+Organic traffic is skipped. Back/forward, reload and bfcache re-shows of the landing send a
+tagged click-ping only — no billed identification — and ClickShield never counts them as ad
+clicks. A Chrome prerender waits for activation before sending anything.
 
 ```
 Browser  →  SSR HTML <head>: preconnect ×2 + agent modulepreload + inline boot
             (plugins/fingerprint-early.ts — rendered before the stylesheets)
-              ├ 1. CLICK-PING (~0.2s): sendBeacon → ClickShield /api/fingerprint/click
-              │    └ registers the ad click instantly (gclid + device token + UA/IP)
+              ├ 1. CLICK-PING (~0.2s, before any gate): sendBeacon → ClickShield /api/fingerprint/click
+              │    └ registers the ad click instantly (gclid + device token + UA/IP + navigationType)
               └ 2. starts Fingerprint load/get while Nuxt chunks download
          →  sendBeacon / keepalive POST → ClickShield /api/fingerprint/ingest
               └ ClickShield validates requestId with the SECRET key and stores the event

@@ -34,16 +34,45 @@ export function detectAdTraffic(params: URLSearchParams): { isAd: boolean; click
 }
 
 /**
- * True only for a fresh top-level navigation (`type === 'navigate'`) — i.e. NOT
- * a back/forward traversal or a reload. This is what keeps fingerprinting from
- * re-firing when the visitor hits Back and the ad params reappear in the URL,
- * while still firing on a genuine re-click of a cached ad. Fails open (returns
- * true) if the Navigation Timing entry is unavailable.
+ * How the current document came to be. Sent with every click-ping so ClickShield
+ * can tell a new ad click from a re-show of the landing page:
+ *  - `navigate`     — a genuine new history entry (the ad tap)
+ *  - `prerender`    — Chrome prerendered the page; reported at activation
+ *  - `back_forward` — the visitor came Back/Forward onto the landing
+ *  - `reload`       — F5 / pull-to-refresh
+ *  - `unknown`      — Navigation Timing unavailable (treated as a fresh click)
+ * A bfcache restore never re-runs scripts; it is reported as `bfcache` from the
+ * `pageshow` listener instead.
  */
+export type NavigationType = 'navigate' | 'prerender' | 'back_forward' | 'reload' | 'unknown'
+
+/** Detect the document's navigation type. Never throws. */
+export function getNavigationType(): NavigationType {
+  try {
+    const doc = typeof document === 'undefined' ? null : (document as Document & { prerendering?: boolean })
+    if (doc?.prerendering) return 'prerender'
+    if (typeof performance === 'undefined' || !performance.getEntriesByType) return 'unknown'
+    const [nav] = performance.getEntriesByType('navigation') as PerformanceNavigationTiming[]
+    const type = nav?.type
+    return type === 'navigate' || type === 'back_forward' || type === 'reload' ? type : 'unknown'
+  } catch {
+    return 'unknown'
+  }
+}
+
+/**
+ * Identification (a billed `fp.get`) runs only for a genuine new entry — NOT a
+ * back/forward traversal or a reload, which re-show a landing the device was
+ * already identified on. The click-ping is NOT gated by this: it fires on every
+ * ad-marked document and carries the type. Fails open on `unknown`.
+ */
+export function shouldIdentify(type: NavigationType): boolean {
+  return type !== 'back_forward' && type !== 'reload'
+}
+
+/** `shouldIdentify(getNavigationType())` — kept for readability at call sites. */
 export function isFreshNavigation(): boolean {
-  if (typeof performance === 'undefined' || !performance.getEntriesByType) return true
-  const [nav] = performance.getEntriesByType('navigation') as PerformanceNavigationTiming[]
-  return nav ? nav.type === 'navigate' : true
+  return shouldIdentify(getNavigationType())
 }
 
 /**

@@ -24,29 +24,37 @@ backend for click-fraud analysis. Also loads **Google Ads gtag** for conversion 
 
 Fingerprint Pro is **not always-on**. The agent loads only when the visit is paid Google Ads
 traffic, which keeps the (billed) Fingerprint quota focused on the clicks that matter for fraud
-detection. The gate lives in [`plugins/fingerprint.client.ts`](plugins/fingerprint.client.ts) and
-the pure helpers in [`composables/usePageContext.ts`](composables/usePageContext.ts).
+detection. The gates live in [`composables/usePageContext.ts`](composables/usePageContext.ts);
+the SSR head boot ([`plugins/fingerprint-early.ts`](plugins/fingerprint-early.ts)) runs them
+before Nuxt hydrates, with [`plugins/fingerprint.client.ts`](plugins/fingerprint.client.ts) as
+the hydration-time fallback (it never blocks hydration).
 
-A visit is fingerprinted only when **both** conditions hold:
+An ad landing sends **two** beacons to ClickShield, in this order:
 
-1. **Ad params present** — `detectAdTraffic()` returns true when the URL has:
+1. **Click-ping** (`POST /api/fingerprint/click`, ~0.2 s after the HTML) — on **every** document
+   whose URL carries ad params (`detectAdTraffic()`):
    - a Google Ads **click id**: `gclid`, `wbraid`, or `gbraid` (the value is captured for attribution), **or**
    - the `gad_source` marker, **or**
    - `utm_source=google` with a paid `utm_medium` (`cpc`, `ppc`, `paid`, `paidsearch`, `paid-search`).
-2. **Fresh navigation** — `isFreshNavigation()` requires the Navigation Timing `type` to be
-   `navigate` (a genuine new page entry), **not** `back_forward` or `reload`.
 
-The navigation-type check is what stops a re-fire when a visitor leaves the landing page and clicks
-**Back** (which restores the ad params in the URL), while still firing on a genuine re-click of a
-cached ad:
+   The ping is tagged with the document's `navigationType` (`getNavigationType()`), so
+   ClickShield can tell a new ad click from a re-show of the landing page. A back-forward-cache
+   restore (no script re-runs) sends a `bfcache` ping from `pageshow`.
+2. **Identification** (billed `fp.get`, then `POST /api/fingerprint/ingest`) — only when
+   `shouldIdentify()` allows it: a genuine new entry, **not** `back_forward` or `reload`.
 
-| Action | Nav type | Params | Fingerprints? |
-|---|---|---|---|
-| Click Google ad → land | `navigate` | yes | ✅ |
-| Click an internal link (params drop) | `navigate` | no | ❌ |
-| Browser **Back** to the landing (params reappear) | `back_forward` | yes | ❌ |
-| Back to Google → re-click the same cached ad | `navigate` | yes | ✅ |
-| Manual reload (F5) | `reload` | yes | ❌ |
+A prerendered document (Chrome speculation rules) waits for activation — nothing is sent before
+the actual tap.
+
+| Action | Nav type | Click-ping (tag) | Counted as ad click | Fingerprints? |
+|---|---|---|---|---|
+| Tap Google ad → land | `navigate` | ✅ `navigate` | ✅ | ✅ |
+| Chrome prerendered the landing, then the tap | `prerender` (at activation) | ✅ `prerender` | ✅ | ✅ |
+| Back to Google → re-tap the same ad (same gclid) | `navigate` | ✅ `navigate` | ✅ (again) | ✅ |
+| Click an internal link (params drop) | `navigate` | ❌ | — | ❌ |
+| Browser **Back** to the landing (bfcache restore) | `pageshow.persisted` | ✅ `bfcache` | ❌ | ❌ |
+| Browser **Back** to the landing (full reload) | `back_forward` | ✅ `back_forward` | ❌ | ❌ |
+| Manual reload (F5 / pull-to-refresh) | `reload` | ✅ `reload` | ❌ | ❌ |
 
 Flow once the gate passes:
 
@@ -108,8 +116,8 @@ NUXT_PUBLIC_CLICKSHIELD_INGEST_URL=https://clickshield-web-370434332956.europe-w
 
 ### 1. Watch the right requests
 
-Open **DevTools → Network** and filter by `fpjs` (the Fingerprint agent/identification) and
-`ingest` (the POST to ClickShield). To read the navigation type live, run this in the **Console**:
+Open **DevTools → Network** and filter by `click` (the instant click-ping), `fpjs` (the
+Fingerprint agent/identification) and `ingest` (the POST to ClickShield). To read the navigation type live, run this in the **Console**:
 
 ```js
 performance.getEntriesByType('navigation')[0].type   // 'navigate' | 'back_forward' | 'reload'
@@ -119,17 +127,17 @@ performance.getEntriesByType('navigation')[0].type   // 'navigate' | 'back_forwa
 
 | # | Steps | Expected |
 |---|---|---|
-| 1 | Open `…/?gclid=TEST123` in a **new tab** (address bar → Enter) | `fpjs.io` request fires **and** a `POST /api/fingerprint/ingest` goes out |
+| 1 | Open `…/?gclid=TEST123` in a **new tab** (address bar → Enter) | A `POST /api/fingerprint/click` beacon (tagged `navigate`) leaves first, then the `fpjs.io` request **and** a `POST /api/fingerprint/ingest` |
 | 2 | Open `…/` with **no** params | **No** `fpjs.io` and **no** ingest |
-| 3 | From scenario 1, click an internal link, then the browser **Back** button | Params reappear in the URL but **no** new `fpjs`/ingest (nav type `back_forward`) |
+| 3 | From scenario 1, click an internal link, then the browser **Back** button | A `click` beacon tagged `back_forward` (or `bfcache`), but **no** new `fpjs`/ingest |
 | 4 | From the Google SERP (or any other page), re-click a link to `…/?gclid=TEST123` | Fires **again**, even with the same gclid (nav type `navigate`) |
-| 5 | On the ad landing, press **F5** | **No** new `fpjs`/ingest (nav type `reload`) |
+| 5 | On the ad landing, press **F5** | A `click` beacon tagged `reload`, **no** new `fpjs`/ingest |
 | 6 | Open `…/?utm_source=google&utm_medium=cpc` | Fires |
 | 7 | Open `…/?utm_source=google&utm_medium=organic` | **No** fire (not a paid medium) |
 
 > Tip: use a **fresh tab** (or incognito window) for scenarios 1/4 so the first load is a clean
-> `navigate`. Browser Back is often served from the bfcache, in which case the page JS doesn't run at
-> all — which is also a (correct) no-fire.
+> `navigate`. Browser Back is often served from the bfcache: the page JS doesn't re-run, but the
+> `pageshow` listener still sends a click beacon tagged `bfcache` (never counted as an ad click).
 
 ### 3. Confirm the gclid is forwarded
 
