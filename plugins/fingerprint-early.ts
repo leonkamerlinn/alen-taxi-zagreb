@@ -28,26 +28,58 @@ export default defineNuxtPlugin({
     if (!detectAdTraffic(new URLSearchParams(search)).isAd) return
 
     const endpoint = (pub.fingerprintEndpoint as string) || ''
-    const preconnectHref = endpoint || 'https://fpjscdn.net'
+    const region = (pub.fingerprintRegion as string) || 'eu'
+    const scriptUrlPattern = (pub.fingerprintScriptUrlPattern as string) || ''
+
+    // BOTH hosts on the critical path get a warm connection during HTML parse:
+    // the agent download (script CDN) AND the identify API. Covering only one
+    // leaves the other paying DNS+TCP+TLS (~100-300ms) right when it matters.
+    let scriptHost = 'https://fpjscdn.net'
+    if (scriptUrlPattern) {
+      try {
+        // Patterns carry <placeholders> in the path; the host part is literal.
+        scriptHost = new URL(scriptUrlPattern.replace(/<[^>]+>/g, 'x')).origin
+      } catch { /* keep the CDN default */ }
+    }
+    const apiHost =
+      endpoint || (region === 'us' ? 'https://api.fpjs.io' : `https://${region}.api.fpjs.io`)
+
+    // The exact module the inline boot will import() — a modulepreload starts
+    // its download during HTML parse, before the script even executes. Skipped
+    // for custom proxies (their final loader URL is version-dependent).
+    const agentModuleUrl = scriptUrlPattern
+      ? ''
+      : `https://fpjscdn.net/v3/${encodeURIComponent(apiKey)}`
 
     const script = buildEarlyFingerprintScript({
       apiKey,
-      region: (pub.fingerprintRegion as string) || 'eu',
+      region,
       endpoint,
-      scriptUrlPattern: (pub.fingerprintScriptUrlPattern as string) || '',
+      scriptUrlPattern,
       ingestUrl: (pub.clickshieldIngestUrl as string) || '',
     })
 
+    // tagPriority 'critical' renders these before the app stylesheets — an
+    // inline script otherwise blocks on every earlier stylesheet (CSSOM), which
+    // costs the exact hundreds of ms this boot exists to save.
     useHead({
       link: [
-        { key: 'cs-fp-preconnect', rel: 'preconnect', href: preconnectHref, crossorigin: 'anonymous' },
-        { key: 'cs-fp-dns', rel: 'dns-prefetch', href: preconnectHref },
+        { key: 'cs-fp-preconnect-script', rel: 'preconnect', href: scriptHost, crossorigin: 'anonymous', tagPriority: 'critical' },
+        { key: 'cs-fp-preconnect-api', rel: 'preconnect', href: apiHost, crossorigin: 'anonymous', tagPriority: 'critical' },
+        { key: 'cs-fp-dns-script', rel: 'dns-prefetch', href: scriptHost, tagPriority: 'critical' },
+        { key: 'cs-fp-dns-api', rel: 'dns-prefetch', href: apiHost, tagPriority: 'critical' },
+        // No crossorigin: module import() uses credentials mode "same-origin";
+        // a mismatched preload credentials mode would double-fetch the agent.
+        ...(agentModuleUrl
+          ? [{ key: 'cs-fp-modulepreload', rel: 'modulepreload', href: agentModuleUrl, tagPriority: 'critical' as const }]
+          : []),
       ],
       script: [
         {
           key: 'cs-fp-early',
           type: 'text/javascript',
           tagPosition: 'head',
+          tagPriority: 'critical',
           // Unhead serializes innerHTML into the SSR HTML <script> body.
           innerHTML: script,
         },

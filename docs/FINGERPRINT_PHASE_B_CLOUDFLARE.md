@@ -1,123 +1,98 @@
 # Fingerprint Pro — Phase B: First‑party Cloudflare Worker proxy (1‑year Safari)
 
-This is the runbook for making Fingerprint Pro **first‑party** on `metrics.taxizagreb24.com` via
-Fingerprint's **Cloudflare Worker proxy integration**, so visitor cookies survive in Safari for **~1 year**
-instead of the ~7 days you get from a plain CNAME custom subdomain.
+This is the runbook for making Fingerprint Pro **first‑party** on `metrics.<domain>` via a
+**self‑managed Cloudflare Worker proxy**, so visitor cookies survive in Safari for **~1 year**
+instead of the ~7 days you get from a plain CNAME custom subdomain (Safari ITP caps
+CNAME‑cloaked / third‑party cookies at 7 days).
 
-> **Phase A is already done.** Tracking + the `/dashboard` admin UI are live on `taxizagreb24.com` (EU region),
-> loading the agent from Fingerprint's CDN. Phase B is an optional upgrade — leaving it undone changes nothing
-> except reduced Safari cookie longevity. See [`FINGERPRINT_SETUP.md`](./FINGERPRINT_SETUP.md) for Phase A.
+> **STATUS: ✅ DEPLOYED (both sites) — 2026‑06‑18.** Deployed via the Cloudflare + Fingerprint
+> MCPs as a **self‑managed worker** (not the dashboard wizard). Covers Alen's `taxizagreb24.com`
+> **and** Tim's `zagrebtaxizagreb.com` (they share one Fingerprint workspace + public key).
 
 ---
 
-## Why this approach
-
-| | CNAME custom subdomain | **Cloudflare Worker proxy (this doc)** |
-|---|---|---|
-| First‑party script + API | ✅ | ✅ |
-| Safari cookie lifetime | ~7 days (ITP caps CNAME‑cloaked cookies) | **~1 year** (responses come first‑party from your Worker) |
-| Setup | DNS records only | DNS record + dashboard wizard deploys a Worker |
-
-We use the **DNS‑only subdomain variant**: the apex `taxizagreb24.com` stays **DNS‑only** (its serving path is
-unchanged), and **only `metrics.taxizagreb24.com` is proxied** through Cloudflare to run the Worker.
-
-### Architecture
+## How it works
 
 ```
-Browser on https://taxizagreb24.com
+Browser on https://<domain>
    │  loads agent + sends identification to …
    ▼
-https://metrics.taxizagreb24.com/<WORKER_PATH>      (proxied / orange‑cloud on Cloudflare)
-   │  Cloudflare Worker (deployed by the Fingerprint wizard)
+https://metrics.<domain>/<path>      (proxied / orange‑cloud on Cloudflare)
+   │  self‑managed Cloudflare Worker (fingerprintjs/cloudflare-worker-proxy v1.7.0)
    ▼
-Fingerprint EU APIs (eu.api.fpjs.io, fpjscdn.net)
+Fingerprint EU APIs (eu.api.fpjs.io)
 ```
 
-Because the Worker answers as `metrics.taxizagreb24.com` (same registrable domain as the page), Safari treats
-its cookies as first‑party and does not apply the 7‑day CNAME cap.
+Because the Worker answers as `metrics.<domain>` (same registrable domain as the page), Safari
+treats its `Set-Cookie` as first‑party and does **not** apply the 7‑day cap. The app needs no
+code change — `plugins/fingerprint.client.ts` already passes `endpoint` + `scriptUrlPattern`
+to `load()` when the two `NUXT_PUBLIC_FINGERPRINT_*` env vars are set.
 
 ---
 
-## Facts for this project
+## Deployed configuration (live)
 
 | Item | Value |
 |---|---|
-| Live domain | `taxizagreb24.com` |
-| Subdomain | `metrics.taxizagreb24.com` |
-| DNS provider | **Cloudflare** (zone id `d01a0487ebc5137e39ff6ad638230dcc`, account `e0dd3f…`) |
-| Cloud Run service | `alen-taxi-zagreb`, region **`europe-west4`**, project `project-57147346-010b-465c-a23` |
+| Cloudflare account | `e0dd3f3366394663f4d18c175c203c89` |
+| Worker source | `fingerprintjs/cloudflare-worker-proxy` **v1.7.0** (`fingerprintjs-pro-cloudflare-worker.esm.js`, SHA‑256 `39091f3b…79c8f6`) |
 | Fingerprint region | **EU** (`eu.api.fpjs.io`) |
-| Public API key | `AyRoy4mfOeDlCinfWqpx` |
-| Env vars to set | `NUXT_PUBLIC_FINGERPRINT_ENDPOINT`, `NUXT_PUBLIC_FINGERPRINT_SCRIPT_URL_PATTERN` |
+| Public API key | `AyRoy4mfOeDlCinfWqpx` (shared by both sites) |
+| Proxy secret (Fingerprint) | key `cloudflare-proxy-secret`, id `tok_H6UeFHarsRIcIlXTzQeow0RK` (token lives only in each Worker's `PROXY_SECRET` secret binding) |
 
-The app code already reads those two env vars (`plugins/fingerprint.client.ts`) — **no code change is needed**,
-only config + the Cloudflare wizard + a redeploy.
+**Worker env bindings (both workers):**
 
----
+| Binding | Type | Value |
+|---|---|---|
+| `AGENT_SCRIPT_DOWNLOAD_PATH` | plain_text | per‑site slug (below) |
+| `GET_RESULT_PATH` | plain_text | per‑site slug (below) |
+| `INTEGRATION_PATH_DEPTH` | plain_text | `0` (worker served at subdomain root — **default 1 would strip the path segment and break routing**) |
+| `FPJS_INGRESS_BASE_HOST` | plain_text | `api.fpjs.io` (the worker prepends `eu.` itself from `?region=eu`; do **not** set `eu.api.fpjs.io`) |
+| `PROXY_SECRET` | secret_text | the proxy key token above |
 
-## Prerequisites
+**Per‑site:**
 
-- A **Cloudflare API token** for the wizard, scoped to:
-  - **Account → Workers Scripts → Edit**
-  - **Zone → Workers Routes → Edit** (zone `taxizagreb24.com`)
-  - Recommended: **IP filter `3.23.16.20`** (Fingerprint's wizard backend), **no TTL**.
-  - *(The token `cfat_1yy…` already validated for these Workers scopes. It lacks `Zone:DNS:Edit`, which is fine —
-    you add the one DNS record manually in Step 2.)*
-- **Workers enabled** on the Cloudflare account (free tier is enough).
+| | Alen | Tim |
+|---|---|---|
+| Domain | `taxizagreb24.com` | `zagrebtaxizagreb.com` |
+| Subdomain | `metrics.taxizagreb24.com` | `metrics.zagrebtaxizagreb.com` |
+| CF zone | `d01a0487ebc5137e39ff6ad638230dcc` | `5a2835517257af93e303c33e1f6728ac` |
+| Worker script | `fingerprint-proxy-alen` | `fingerprint-proxy-tim` |
+| Route | `metrics.taxizagreb24.com/*` (`7a60bf70…`) | `metrics.zagrebtaxizagreb.com/*` (`c4599d0e…`) |
+| `AGENT_SCRIPT_DOWNLOAD_PATH` | `agent-m0zfpmtcwbpc` | `agent-fyatwbypklm5` |
+| `GET_RESULT_PATH` | `result-8ckw7w2h3ebt` | `result-wrpuw4ou4zff` |
+| DNS `metrics` AAAA `100::` proxied | pre‑existing | created 2026‑06‑18 |
+| Cloud Run service | `alen-taxi-zagreb` | `tim-taxi-zagreb-new` |
+| Revision with env vars | `alen-taxi-zagreb-00006-crt` | `tim-taxi-zagreb-new-00004-d7n` |
 
----
+**Cloud Run env vars set (per site):**
 
-## Steps
-
-### Step 1 — Add the proxied subdomain record (Cloudflare)
-
-Cloudflare → `taxizagreb24.com` → **DNS → Records → Add record**:
-
-| Field | Value |
-|---|---|
-| Type | `AAAA` |
-| Name | `metrics` |
-| IPv6 address | `100::` |
-| Proxy status | **Proxied (orange cloud) — ON** |
-
-`100::` is a discard placeholder; the Worker serves every response, so the address is never contacted. The
-record's only job is to route `metrics.taxizagreb24.com` through Cloudflare's edge so the Worker route fires.
-**It must be proxied (orange), not DNS‑only (grey).**
-
-### Step 2 — Run the Fingerprint Cloudflare wizard
-
-Fingerprint dashboard → **SDKs & integrations → Cloudflare → Connect** →
-
-1. Choose the **subdomain** integration option.
-2. Target subdomain: `metrics.taxizagreb24.com`.
-3. Paste the Cloudflare API token from Prerequisites.
-4. Finish — the wizard deploys a Worker (named `fingerprint-pro-cloudflare-worker-<id>`), creates a **proxy
-   secret**, and binds the route.
-
-When it completes it shows two values — copy them **exactly**:
-- **`endpoint`** → e.g. `https://metrics.taxizagreb24.com/<WORKER_PATH>?region=eu`
-- **`scriptUrlPattern`** → e.g. `https://metrics.taxizagreb24.com/<WORKER_PATH>/...`
-
-### Step 3 — Set the env vars + redeploy
-
-Run from the repo root. `--update-env-vars` adds just these two and leaves the existing public vars and
-mounted secrets untouched:
-
-```bash
-gcloud run deploy alen-taxi-zagreb \
-  --source . \
-  --region europe-west4 \
-  --project project-57147346-010b-465c-a23 \
-  --update-env-vars '^@^NUXT_PUBLIC_FINGERPRINT_ENDPOINT=<ENDPOINT_FROM_WIZARD>@NUXT_PUBLIC_FINGERPRINT_SCRIPT_URL_PATTERN=<SCRIPTURLPATTERN_FROM_WIZARD>'
+```
+NUXT_PUBLIC_FINGERPRINT_ENDPOINT=https://metrics.<domain>/<GET_RESULT_PATH>?region=eu
+NUXT_PUBLIC_FINGERPRINT_SCRIPT_URL_PATTERN=https://metrics.<domain>/<AGENT_SCRIPT_DOWNLOAD_PATH>?apiKey=<apiKey>&version=<version>&loaderVersion=<loaderVersion>
 ```
 
-> The `^@^` prefix sets `@` as the delimiter so commas inside the URL values are not misread as separators.
-> If neither value contains a comma you can drop `^@^` and separate the two assignments with a comma.
+> `<apiKey>`, `<version>`, `<loaderVersion>` are **literal placeholders** the FingerprintJS
+> agent substitutes at runtime — the worker reads them from the query string and builds the
+> `…/web/v<version>/<apiKey>/loader_v<loaderVersion>.js` CDN path itself.
 
-### Step 4 — Lock the public key (Fingerprint dashboard)
+---
 
-App settings → API Keys → the **public** key → allowed origins: restrict to
-`https://taxizagreb24.com` and `https://metrics.taxizagreb24.com`.
+## How it was deployed (self‑managed, via MCP)
+
+1. **Proxy secret** — Fingerprint MCP `create_api_key` `type:proxy` → token → `PROXY_SECRET`.
+2. **Workers** — `PUT /accounts/<acct>/workers/scripts/<name>` (module worker, multipart with
+   the v1.7.0 `.esm.js` as `main_module` + the 5 bindings) for each site, via Cloudflare MCP
+   `execute`. (The MCP sandbox egress is allowlisted to `api.cloudflare.com`, so the bundle was
+   transferred inline as gzip+base64 and SHA‑256‑verified before upload.)
+3. **DNS + routes** — created Tim's proxied `AAAA metrics → 100::` (Alen's already existed) and
+   bound both `metrics.<domain>/*` routes.
+4. **Cloud Run** — `gcloud run services update <svc> --update-env-vars '^@^…'` (new revision,
+   no rebuild — only env vars changed).
+
+### Re‑deploying / updating the worker
+To bump the agent‑proxy version later, download the new `*.esm.js` from the repo releases and
+re‑`PUT` the same script name with the same bindings. Routes/DNS/Cloud Run stay as‑is.
 
 ---
 
@@ -126,39 +101,48 @@ App settings → API Keys → the **public** key → allowed origins: restrict t
 ```bash
 # 1. metrics resolves to CLOUDFLARE IPs (104.x / 172.6x), i.e. proxied — not Google 216.239.x
 dig +short metrics.taxizagreb24.com
+dig +short metrics.zagrebtaxizagreb.com
 
-# 2. The Worker answers on the subdomain
-curl -sI "https://metrics.taxizagreb24.com/<WORKER_PATH>" | head -1
+# 2. Worker answers + all env vars valid (status page shows "Worker version: 1.7.0")
+curl -s https://metrics.taxizagreb24.com/status | grep -i "worker version\|variables are set"
 
-# 3. Events still flow (EU Server API) after a real browser visit
-curl -s -H "Auth-API-Key: <FINGERPRINT_SECRET_KEY>" "https://eu.api.fpjs.io/events/search?limit=1"
+# 3. Agent proxies first‑party (200, text/javascript, ~169 KB)
+curl -sI "https://metrics.taxizagreb24.com/agent-m0zfpmtcwbpc?apiKey=AyRoy4mfOeDlCinfWqpx&version=3" | head -1
+
+# 4. Site payload points the agent at metrics.* (no fpjscdn)
+curl -s https://taxizagreb24.com/ | grep -o 'metrics\.taxizagreb24\.com/[a-z-]*[a-z0-9]*'
 ```
 
-In a browser on `https://taxizagreb24.com`, open DevTools → Network and confirm:
-- the agent script loads from **`metrics.taxizagreb24.com/...`** (not `fpjscdn.net`),
-- `POST /api/identify` returns `200 {"ok":true}`,
-- the Fingerprint dashboard shows the Cloudflare integration **Connected**.
+In **Safari** on each site, DevTools → Network: agent loads from `metrics.<domain>/…` (not
+`fpjscdn.net`); `POST /api/identify` → `200 {"ok":true}`; the Fingerprint visitor cookie's
+`Expires` should be ≈ +1 year (vs ~7 days previously). Events: Fingerprint MCP `search_events`
+(EU) shows fresh events after a visit. ✅ All of 1–4 verified at deploy time.
+
+---
+
+## ⚠️ Remaining manual step — lock the public key origins
+
+The Fingerprint **MCP/management API does not expose allowed‑origin restrictions**, so this must
+be done in the **dashboard**: App settings → API Keys → the **public** key (`AyRoy4mfOeDlCinfWqpx`)
+→ allowed origins → restrict to `https://taxizagreb24.com`, `https://metrics.taxizagreb24.com`,
+`https://zagrebtaxizagreb.com`, `https://metrics.zagrebtaxizagreb.com` (+ `http://localhost:3000`
+if local dev needs it). This prevents quota abuse from other sites; it is hardening, not required
+for cookie longevity.
 
 ---
 
 ## Rollback
 
-Phase B is purely additive and instantly reversible. To revert to the CDN endpoint (tracking keeps working):
+Per site, remove the two env vars (tracking falls back to the CDN, still works):
 
 ```bash
-gcloud run deploy alen-taxi-zagreb --source . --region europe-west4 \
+gcloud run services update <svc> --region europe-west4 \
   --project project-57147346-010b-465c-a23 \
   --remove-env-vars NUXT_PUBLIC_FINGERPRINT_ENDPOINT,NUXT_PUBLIC_FINGERPRINT_SCRIPT_URL_PATTERN
 ```
 
-Or roll traffic back to the previous revision instantly:
-
-```bash
-gcloud run services update-traffic alen-taxi-zagreb --region europe-west4 \
-  --to-revisions <PREVIOUS_REVISION>=100
-```
-
-(You can leave the Cloudflare Worker and `metrics` record in place; they're inert once the env vars are gone.)
+The Workers, routes, and `metrics` DNS records can stay (inert once the env vars are gone) or be
+deleted via the Cloudflare MCP / dashboard.
 
 ---
 
@@ -166,33 +150,12 @@ gcloud run services update-traffic alen-taxi-zagreb --region europe-west4 \
 
 | Symptom | Cause / fix |
 |---|---|
-| Agent still loads from `fpjscdn.net` | Env vars not applied or mistyped. Check: `gcloud run services describe alen-taxi-zagreb --region europe-west4 --format='value(spec.template.spec.containers[0].env)'`. |
-| `metrics` resolves to `216.239.x` (Google) | The DNS record is **DNS‑only (grey)**. Turn the proxy **ON** (orange). |
-| `5xx` / no response from `metrics.taxizagreb24.com` | Worker not deployed or route not bound — re‑run the wizard; confirm the `metrics` record is proxied. |
-| Wizard fails with a token/permission error | Token needs **Workers Scripts:Edit** + **Workers Routes:Edit** (+ IP filter `3.23.16.20`), and Workers must be enabled on the account. |
-| Safari still drops cookies after ~7 days | You used the **CNAME** subdomain, not the **Worker** integration. Re‑do via the wizard (Worker proxy). |
-| `POST /api/identify` returns `{ok:false}` | Region mismatch or the requestId wasn't found — confirm `NUXT_PUBLIC_FINGERPRINT_REGION=eu` and the secret key. |
+| Agent still loads from `fpjscdn.net` | Env vars not applied. Check `gcloud run services describe <svc> --region europe-west4 --format='value(spec.template.spec.containers[0].env)'`. |
+| `metrics` resolves to `216.239.x` (Google) | DNS record is **DNS‑only (grey)**. Turn the proxy **ON** (orange). |
+| Status page lists a var "not set" / `5xx` | A binding is missing/invalid — re‑`PUT` the worker with all 5 bindings; `INTEGRATION_PATH_DEPTH` must be `0`. |
+| `404 {"error":"unmatched path …"}` from the worker | Request path doesn't match `AGENT_SCRIPT_DOWNLOAD_PATH`/`GET_RESULT_PATH`, or `INTEGRATION_PATH_DEPTH` ≠ `0` for a subdomain‑root deploy. |
+| Double‑prefixed ingress host (`eu.eu.api.fpjs.io`) | `FPJS_INGRESS_BASE_HOST` was set to `eu.api.fpjs.io`; it must be the base `api.fpjs.io`. |
+| Safari still drops cookies after ~7 days | `metrics` not actually proxied, or env vars not live — re‑verify steps 1–4. |
 
-> **CSP note:** this app currently sends **no Content‑Security‑Policy**, so nothing blocks the subdomain. If a
-> CSP is ever added, include `https://metrics.taxizagreb24.com` in `connect-src` **and** `script-src`.
-
----
-
-## Security & GDPR
-
-- After Step 4 the public key is restricted to your two origins, preventing quota abuse from other sites.
-- The Fingerprint Cloudflare Worker drops cookies coming from the origin website (per Fingerprint), keeping the
-  identification channel clean.
-- **GDPR:** the agent runs for **every** visitor (always‑on). Your privacy/cookie notice must disclose device
-  fingerprinting. To make it consent‑gated, uncomment the single guard line in `plugins/fingerprint.client.ts`.
-- **Rotate** the Fingerprint **secret key** and the **Cloudflare token** after setup if they were shared in
-  plaintext, and revoke any unused credentials (e.g. R2 keys).
-
----
-
-## Optional hardening — endpoint fallback
-
-`plugins/fingerprint.client.ts` currently passes the custom `endpoint`/`scriptUrlPattern` as single values. For
-resilience you can pass them as arrays with Fingerprint's defaults appended, so identification still succeeds if
-the Worker is ever unavailable (at the cost of falling back to the third‑party CDN for that request). Ask if you
-want this wired in alongside the Phase B redeploy.
+> **CSP note:** this app currently sends **no Content‑Security‑Policy**. If one is ever added,
+> include `https://metrics.<domain>` in `connect-src` **and** `script-src`.

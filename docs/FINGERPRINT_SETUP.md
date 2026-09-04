@@ -19,18 +19,65 @@ Paid Google Ads landings only (gclid / wbraid / gbraid / gad_source / paid Googl
 Organic and back/forward navigations are skipped.
 
 ```
-Browser  →  SSR HTML <head>: preconnect + inline boot (plugins/fingerprint-early.ts)
-              └ starts Fingerprint load/get while Nuxt chunks download
+Browser  →  SSR HTML <head>: preconnect ×2 + agent modulepreload + inline boot
+            (plugins/fingerprint-early.ts — rendered before the stylesheets)
+              ├ 1. CLICK-PING (~0.2s): sendBeacon → ClickShield /api/fingerprint/click
+              │    └ registers the ad click instantly (gclid + device token + UA/IP)
+              └ 2. starts Fingerprint load/get while Nuxt chunks download
          →  sendBeacon / keepalive POST → ClickShield /api/fingerprint/ingest
               └ ClickShield validates requestId with the SECRET key and stores the event
          →  plugins/fingerprint.client.ts reuses window.__csFpPromise (no double-fire)
+
+Fingerprint Cloud  →  webhook POST → ClickShield /api/fingerprint/webhook
+              └ server-side delivery of the same event — lands even if the tab
+                closed before the browser beacon could fire (dedup on requestId)
 
 You      →  ClickShield admin / Fingerprints dashboard (source of truth is ClickShield Postgres)
 ```
 
 The Secret API key **never** reaches the browser. The browser only ever holds the Public key.
-Early head boot + beacon/keepalive exist so **sub‑1s ad bounces** are less likely to lose the
-ingest POST; a cold agent download still has a physical floor (~a few hundred ms).
+
+**Every ad click is recorded, no matter how fast the visitor leaves:**
+
+- **~0.2s dwell** → the click-ping row is there (shown in ClickShield as
+  "Ad clicks without a fingerprint", with UA/IP-level device info).
+- **~0.4–0.8s dwell** → the identify request got out; the **webhook** delivers the full
+  fingerprint server-side and ClickShield matches it to the click-ping by gclid / device token.
+- **≥ ~0.8s dwell** → the browser ingest beacon delivers it directly (webhook dedupes).
+
+---
+
+## Webhook + ops setup for sub-second capture (one-time, on ClickShield)
+
+The webhook is what makes fast bounces recoverable server-side — set it up once per
+Fingerprint workspace (tim's site shares this workspace, so **one webhook covers both sites**;
+ClickShield attributes each event to its site by the event's own page host):
+
+1. Fingerprint dashboard (<https://dashboard.fingerprint.com>, the EU workspace) →
+   **App settings → Webhooks → Add webhook**.
+2. URL: `https://<YOUR_CLICKSHIELD_HOST>/api/fingerprint/webhook` (the ClickShield API origin).
+3. Enable **signature verification** — the signing key is shown **once**; copy it.
+4. On the **ClickShield** Cloud Run service set:
+   ```
+   FINGERPRINT_WEBHOOK_SECRET=<the signing key>       # verifies the fpjs-event-signature HMAC
+   FINGERPRINT_INGEST_RETRY_MS=2000,5000              # optional; Server API lookup retry backoff
+   ```
+   (Without the secret the endpoint still works — every delivery is validated against the
+   Server API before anything is stored — but the HMAC check is the belt-and-braces option.)
+5. Send a test event from the webhook page and confirm `200`.
+
+**Cloud Run: keep one warm instance on the TAXI sites.** A cold start delays the HTML itself
+by seconds — no client-side optimization can recover that, and it alone can eat the whole
+sub-second budget:
+
+```bash
+gcloud run services update <TAXI_SERVICE> --region <YOUR_REGION> --min-instances=1
+```
+
+**Preconnect correctness:** the SSR head preconnects to the agent CDN and the identify API.
+Those hosts are derived from `NUXT_PUBLIC_FINGERPRINT_ENDPOINT` / `NUXT_PUBLIC_FINGERPRINT_SCRIPT_URL_PATTERN`
+(falling back to `fpjscdn.net` + `eu.api.fpjs.io`) — make sure the values on the Cloud Run
+service match what the agent really uses, or the warmed connections go to the wrong hosts.
 
 ---
 
@@ -202,7 +249,7 @@ fingerprinting is personal data under EU/GDPR, so:
 | Dashboard shows "Fingerprint nije konfiguriran" | `NUXT_FINGERPRINT_SECRET_API_KEY` / public key not set. |
 | `/api/identify` returns `{ok:false}`, events missing | **Region mismatch** — the account region must be **EU** and `NUXT_PUBLIC_FINGERPRINT_REGION=eu`. A 404 from the Server API almost always means wrong region. |
 | No agent request in Network | An **ad‑blocker** blocked the default CDN. Set up the custom subdomain (Step 4) to load first‑party. Or the visit is not paid Google Ads traffic / not a fresh navigation. |
-| Instant bounce missing in ClickShield | Expected floor: agent download + identify still take hundreds of ms. Confirm early head script + beacon ingest in Network; set `NUXT_PUBLIC_CLICKSHIELD_INGEST_URL` and allow the origin in ClickShield `CORS_ORIGIN`. |
+| Instant bounce has no fingerprint row | Look for it under **"Ad clicks without a fingerprint"** (the ~0.2s click-ping). A full fingerprint needs the identify request to get out (~0.4–0.8s cold); once it does, the **webhook** backfills it even if the tab closed. Check: `NUXT_PUBLIC_CLICKSHIELD_INGEST_URL` set, origin allowed in ClickShield `CORS_ORIGIN`, webhook configured (section above), `min-instances=1` on this service. |
 | Safari shows fewer returning visitors | Expected with Option A (~7‑day cap). Use Option B (Cloudflare) for ~1 year. |
 | Login works locally but not in prod | Cookies are `secure` — must be served over HTTPS (Cloud Run is, by default). |
 | History older than ~30 days is gone | Expected — no database by design. Ask me to add Firestore + a webhook if you want long‑term history. |
@@ -226,9 +273,9 @@ fingerprinting is personal data under EU/GDPR, so:
 
 **Key files added**
 
-- `plugins/fingerprint-early.ts` — SSR head preconnect + inline boot for ad landings.
-- `plugins/fingerprint.client.ts` — reuses `__csFpPromise`, or fallback identify + beacon ingest.
-- `utils/fingerprint-ingest.ts` / `utils/fingerprint-early-script.ts` — beacon helper + inline script builder.
+- `plugins/fingerprint-early.ts` — SSR head dual preconnect + agent modulepreload + inline boot for ad landings (rendered before stylesheets).
+- `plugins/fingerprint.client.ts` — reuses `__csFpPromise`, or fallback click-ping + identify + beacon ingest.
+- `utils/fingerprint-ingest.ts` / `utils/fingerprint-early-script.ts` — beacon helpers (ingest + click-ping) + inline script builder.
 - `composables/usePageContext.ts` — builds the page/UTM `tag`.
 - `server/api/identify.post.ts` — server‑side validation + first‑party cookie.
 - `server/api/dashboard/{stats,events}.get.ts` — dashboard data (protected).

@@ -2,6 +2,14 @@
  * Builds the inline <head> boot script for early Fingerprint identification.
  * Must stay in sync with composables/usePageContext.ts (ad gate + fresh nav)
  * and utils/fingerprint-ingest.ts (beacon / keepalive delivery).
+ *
+ * Two-stage delivery so no ad click is ever lost:
+ *  1. postClick() — instant click-ping to ClickShield (~0.2s after HTML,
+ *     text/plain sendBeacon → CORS-safelisted, no preflight; survives an
+ *     immediate tab close). Registers the click with UA/IP-level device info.
+ *  2. Fingerprint identify → postIngest() with the requestId. If the visitor
+ *     bounces before the response, the ClickShield webhook still receives the
+ *     event server-side and reconciles it with the click-ping.
  */
 
 export interface EarlyFpConfig {
@@ -32,6 +40,8 @@ try{var nav=performance.getEntriesByType&&performance.getEntriesByType("navigati
 var TOKEN_KEY="cs_device_token";
 function deviceToken(){try{var t=localStorage.getItem(TOKEN_KEY);if(!t){t=crypto.randomUUID();localStorage.setItem(TOKEN_KEY,t);}return t;}catch(e){return crypto.randomUUID();}}
 function postIngest(requestId,gclid){if(!C.ingestUrl)return;var url=C.ingestUrl.replace(/\\/$/,"")+"/api/fingerprint/ingest";var body=JSON.stringify(gclid?{requestId:requestId,gclid:gclid}:{requestId:requestId});try{if(navigator.sendBeacon&&navigator.sendBeacon(url,new Blob([body],{type:"application/json"})))return;}catch(e){}fetch(url,{method:"POST",headers:{"content-type":"application/json"},credentials:"omit",body:body,keepalive:true}).catch(function(){});}
+function postClick(){if(!C.ingestUrl)return;var url=C.ingestUrl.replace(/\\/$/,"")+"/api/fingerprint/click";var body=JSON.stringify({gclid:clickId||undefined,deviceToken:deviceToken(),path:location.pathname+location.search,referrer:document.referrer||undefined,lang:navigator.language||undefined});try{if(navigator.sendBeacon&&navigator.sendBeacon(url,new Blob([body],{type:"text/plain"})))return;}catch(e){}fetch(url,{method:"POST",headers:{"content-type":"text/plain"},credentials:"omit",body:body,keepalive:true}).catch(function(){});}
+postClick();
 var UTM_KEYS=["utm_source","utm_medium","utm_campaign","utm_term","utm_content"];
 var utm={},k,uv;for(i=0;i<UTM_KEYS.length;i++){k=UTM_KEYS[i];uv=p.get(k);if(uv)utm[k.replace("utm_","")]=uv;}
 var tag={path:location.pathname+location.search,referrer:document.referrer||null,utm:utm,lang:navigator.language||null,gclid:clickId};

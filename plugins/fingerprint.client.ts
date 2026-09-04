@@ -1,5 +1,5 @@
 import { load } from '@fingerprintjs/fingerprintjs-pro'
-import { postIngest } from '~/utils/fingerprint-ingest'
+import { postClickPing, postIngest } from '~/utils/fingerprint-ingest'
 
 declare global {
   interface Window {
@@ -60,6 +60,19 @@ export default defineNuxtPlugin(async () => {
   if (identified) return
   identified = true
 
+  // Instant click-ping BEFORE the agent loads — mirrors the early head boot so
+  // the ad click is registered (~0.2s) even when this fallback path is the one
+  // that runs and the visitor bounces before identification finishes.
+  const ctx = usePageContext()
+  const deviceToken = getOrCreateDeviceToken()
+  postClickPing(pub.clickshieldIngestUrl as string, {
+    gclid: ctx.gclid,
+    deviceToken,
+    path: ctx.path,
+    referrer: ctx.referrer,
+    lang: ctx.lang,
+  })
+
   try {
     const options: Record<string, unknown> = {
       apiKey,
@@ -72,8 +85,6 @@ export default defineNuxtPlugin(async () => {
     const fp = await load(options as any)
 
     // Attach traffic context so the event records which page/campaign it came from.
-    const ctx = usePageContext()
-    const deviceToken = getOrCreateDeviceToken()
     const result = await fp.get({ tag: ctx, linkedId: deviceToken })
 
     // Beacon / keepalive so a fast bounce still delivers the requestId.
