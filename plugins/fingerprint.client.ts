@@ -75,7 +75,7 @@ export default defineNuxtPlugin({
         const fp = await load(options as any)
         // Traffic context on the event; a 5s budget suits a mobile ad landing.
         const result = await fp.get({ tag: ctx, linkedId: deviceToken, timeout: 5000 })
-        postIngest(ingestUrl, { requestId: result.requestId, gclid: ctx.gclid })
+        postIngest(ingestUrl, { requestId: result.requestId, gclid: ctx.gclid, deviceToken })
       } catch (err) {
         // Agent blocked (ad-blocker / privacy extension) or offline — fail silently.
         if (import.meta.dev) console.warn('[fingerprint] init failed:', err)

@@ -81,15 +81,25 @@ function beacon(url: string, body: string, contentType: string): void {
 
 const endpoint = (ingestBase: string, path: string) => `${ingestBase.replace(/\/$/, '')}${path}`
 
-/** Deliver the Fingerprint requestId to ClickShield once identification finished. */
+/**
+ * Deliver the Fingerprint requestId to ClickShield once identification finished.
+ *
+ * `deviceToken` is the same first-party id handed to `fp.get({ linkedId })`.
+ * Fingerprint echoes the linkedId back to ClickShield on the identification,
+ * but not always — sending it here too guarantees the visitor id and the device
+ * token arrive in ONE request, which is what lets this device's earlier
+ * click-pings, a token reissued after a storage clear, and its tokens on other
+ * domains all resolve to a single device.
+ */
 export function postIngest(
   ingestBase: string,
-  payload: { requestId: string; gclid?: string | null },
+  payload: { requestId: string; gclid?: string | null; deviceToken?: string },
 ): void {
   if (!ingestBase) return
   const body = JSON.stringify({
     requestId: payload.requestId,
     ...(payload.gclid ? { gclid: payload.gclid } : {}),
+    ...(payload.deviceToken ? { deviceToken: payload.deviceToken } : {}),
   })
   beacon(endpoint(ingestBase, '/api/fingerprint/ingest'), body, 'text/plain')
 }

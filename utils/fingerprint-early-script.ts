@@ -51,7 +51,7 @@ var TOKEN_KEY="cs_device_token",tok=null;
 function deviceToken(){if(tok)return tok;try{tok=localStorage.getItem(TOKEN_KEY);}catch(e){}if(!tok){tok=uuid();try{localStorage.setItem(TOKEN_KEY,tok);}catch(e){}}return tok;}
 function beacon(path,obj,type){if(!C.ingestUrl)return;var url=C.ingestUrl.replace(/\\/$/,"")+path,body=JSON.stringify(obj);try{if(navigator.sendBeacon&&navigator.sendBeacon(url,new Blob([body],{type:type})))return;}catch(e){}try{fetch(url,{method:"POST",headers:{"content-type":type},credentials:"omit",body:body,keepalive:true}).catch(function(){});}catch(e){}}
 function postClick(t){try{beacon("/api/fingerprint/click",{gclid:clickId||undefined,deviceToken:deviceToken(),path:location.pathname+location.search,referrer:document.referrer||undefined,lang:navigator.language||undefined,navigationType:t},"text/plain");}catch(e){}}
-function postIngest(requestId){beacon("/api/fingerprint/ingest",clickId?{requestId:requestId,gclid:clickId}:{requestId:requestId},"text/plain");}
+function postIngest(requestId){var b={requestId:requestId,deviceToken:deviceToken()};if(clickId)b.gclid=clickId;beacon("/api/fingerprint/ingest",b,"text/plain");}
 function start(){
 postClick(navType);window.__csClickPinged=1;
 try{addEventListener("pageshow",function(e){if(e.persisted)postClick("bfcache");});}catch(e){}
