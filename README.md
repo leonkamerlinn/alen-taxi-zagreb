@@ -44,6 +44,43 @@ first in the page head (`app.head.script` in [`nuxt.config.ts`](nuxt.config.ts))
   [`legacy/clickshield-fingerprint/`](legacy/clickshield-fingerprint/), outside `plugins/`, so Nuxt
   no longer registers it. To roll back, revert the commit that moved it there and push `main`.
 
+### Ad landings: the tracker inline
+
+On an ad landing (`gclid`/`wbraid`/`gbraid`, `gad_source`, or `utm_source=google` with a paid
+medium) and on ClickShield's install test link (`?cs_test=…`), the server pastes the bytes of
+`cs.js` into the page in place of that tag. The click-ping then leaves while the browser reads
+the head, instead of after a download from ClickShield. Every other page keeps the tag above.
+Code: [`server/plugins/clickshield-inline.ts`](server/plugins/clickshield-inline.ts) and
+[`server/clickshield/inline.mjs`](server/clickshield/inline.mjs). Tests: `pnpm test`; the Dockerfile
+runs them before the build, so a failing test stops the deploy.
+
+- Each server instance keeps one copy and refreshes it every 5 minutes in the background; no
+  page waits for it. If ClickShield does not answer, the instance keeps the copy it has. If it
+  answers with a cs.js that cannot run inline, ad landings get the tag above again.
+- [`server/assets/clickshield/cs-fallback.txt`](server/assets/clickshield/cs-fallback.txt) is a
+  bundled snapshot, used only while ClickShield has not answered since the instance started.
+- Off switch, no build: `gcloud run services update alen-taxi-zagreb --region europe-west1
+  --update-env-vars NUXT_CLICKSHIELD_INLINE=false`. It survives deploys; undo it with
+  `--remove-env-vars NUXT_CLICKSHIELD_INLINE`.
+- Which copy a page got (curl runs no JavaScript, so nothing reaches ClickShield):
+  `curl -s 'https://taxizagreb24.com/?gad_source=cs-verify' | grep -o 'data-cs-copy="[^"]*"'`. It reads
+  `live:` or `fallback:` plus the first 12 characters of the copy's SHA-256, the same hash as
+  ClickShield's ETag for `/cs.js`.
+- Logs: one `[clickshield] ad landing` line per ad landing (`mode`, `reason`, `copy`), and one
+  per refresh that changes or fails. `reason: no-tag` means the tag above changed shape (a Nuxt
+  or unhead upgrade, a new `src`): the plugin then leaves the page as it is.
+- Refresh the fallback when ClickShield's tracker changes and before its Fingerprint key is
+  rotated (ClickShield's `docs/tracker.md`, "Rotating the key"), with the same bytes in both taxi
+  repos:
+
+  ```bash
+  curl -sS --fail https://clickshield-web-370434332956.europe-west4.run.app/cs.js \
+    -o server/assets/clickshield/cs-fallback.txt
+  grep -c data-cs-origin server/assets/clickshield/cs-fallback.txt            # must print 1
+  grep -ciE '</script|<script|<!--' server/assets/clickshield/cs-fallback.txt  # must print 0
+  pnpm test
+  ```
+
 The section below describes that previous integration.
 
 ## How fingerprinting worked before the hosted script

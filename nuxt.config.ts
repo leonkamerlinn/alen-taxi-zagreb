@@ -1,3 +1,5 @@
+import { CS_JS_URL } from './server/clickshield/source.mjs'
+
 export default defineNuxtConfig({
   ssr: true,
 
@@ -35,9 +37,11 @@ export default defineNuxtConfig({
         // ClickShield's hosted tracker: click-ping, Fingerprint identification through this
         // site's own proxy on metrics.taxizagreb24.com (the two data-fp-* attributes), then the ingest.
         // First in the head so the ad click is recorded as early as possible. It replaced the
-        // Nuxt integration parked in legacy/clickshield-fingerprint/ (see README).
+        // Nuxt integration parked in legacy/clickshield-fingerprint/ (see README). On ad landings
+        // and install test links server/plugins/clickshield-inline.ts swaps this tag in place for
+        // an inline copy of the same bytes, keeping its data-* attributes.
         {
-          src: 'https://clickshield-web-370434332956.europe-west4.run.app/cs.js',
+          src: CS_JS_URL,
           async: true,
           fetchpriority: 'high',
           tagPriority: 'critical',
@@ -50,6 +54,10 @@ export default defineNuxtConfig({
   },
 
   runtimeConfig: {
+    // ClickShield's tracker inline on ad landings and install test links
+    // (server/plugins/clickshield-inline.ts). Server only. NUXT_CLICKSHIELD_INLINE=false turns it
+    // off: every page then keeps the cs.js src tag above.
+    clickshield: { inline: true },
     public: {
       gtagId: 'AW-17804137574',
       fingerprintPublicApiKey: '', // NUXT_PUBLIC_FINGERPRINT_PUBLIC_API_KEY

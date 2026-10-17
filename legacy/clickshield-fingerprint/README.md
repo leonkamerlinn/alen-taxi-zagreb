@@ -7,4 +7,5 @@ They sit outside `plugins/`, so Nuxt no longer registers them; the helpers they 
 `composables/usePageContext.ts`) and the runtime config keys stay where they were.
 
 To roll back: move both files back into `plugins/`, remove the `cs.js` entry from
-`app.head.script` in `nuxt.config.ts`, and push `main`.
+`app.head.script` in `nuxt.config.ts`, and push `main`. Removing that entry also turns off the
+inline copy on ad landings: `server/plugins/clickshield-inline.ts` then finds no tag to replace.
