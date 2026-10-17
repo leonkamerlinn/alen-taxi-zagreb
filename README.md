@@ -54,21 +54,31 @@ Code: [`server/plugins/clickshield-inline.ts`](server/plugins/clickshield-inline
 [`server/clickshield/inline.mjs`](server/clickshield/inline.mjs). Tests: `pnpm test`; the Dockerfile
 runs them before the build, so a failing test stops the deploy.
 
-- Each server instance keeps one copy and refreshes it every 5 minutes in the background; no
-  page waits for it. If ClickShield does not answer, the instance keeps the copy it has. If it
-  answers with a cs.js that cannot run inline, ad landings get the tag above again.
+- Each server instance keeps one copy. It refreshes at the first request after the copy is 5
+  minutes old (Cloud Run gives an instance no CPU between requests), and that request still gets
+  the older copy, so a page can get a copy up to about 20 minutes old, longer while ClickShield
+  cannot be reached. No page waits for a refresh.
+- If ClickShield does not answer (an outage, a 404, 5xx or redirect, a body that does not arrive
+  within 10 s), the instance keeps the copy it has. If it answers with a cs.js that cannot run
+  inline (no `data-cs-origin`, or over 32 KiB), ad landings get the tag above again.
+- To stop the inline copies, set the off switch below, or have ClickShield serve a cs.js without
+  `data-cs-origin`. A 404, 5xx or redirect from ClickShield reads as an outage and keeps them.
 - [`server/assets/clickshield/cs-fallback.txt`](server/assets/clickshield/cs-fallback.txt) is a
   bundled snapshot, used only while ClickShield has not answered since the instance started.
 - Off switch, no build: `gcloud run services update alen-taxi-zagreb --region europe-west1
-  --update-env-vars NUXT_CLICKSHIELD_INLINE=false`. It survives deploys; undo it with
-  `--remove-env-vars NUXT_CLICKSHIELD_INLINE`.
+  --project project-57147346-010b-465c-a23 --update-env-vars NUXT_CLICKSHIELD_INLINE=false`.
+  Undo it with `--remove-env-vars NUXT_CLICKSHIELD_INLINE`. It survives deploys because
+  `deploy.yml` uses `--update-env-vars`; keep it that way, since `--set-env-vars` would drop it.
+  After a rollback with `gcloud run services update-traffic --to-revisions …`, run
+  `update-traffic --to-latest` again, or every later revision gets no traffic.
 - Which copy a page got (curl runs no JavaScript, so nothing reaches ClickShield):
   `curl -s 'https://taxizagreb24.com/?gad_source=cs-verify' | grep -o 'data-cs-copy="[^"]*"'`. It reads
   `live:` or `fallback:` plus the first 12 characters of the copy's SHA-256, the same hash as
   ClickShield's ETag for `/cs.js`.
 - Logs: one `[clickshield] ad landing` line per ad landing (`mode`, `reason`, `copy`), and one
   per refresh that changes or fails. `reason: no-tag` means the tag above changed shape (a Nuxt
-  or unhead upgrade, a new `src`): the plugin then leaves the page as it is.
+  or unhead upgrade, a new `src`): the plugin then leaves the page as it is. A WARNING means ad
+  landings run without a live copy: the bundled fallback, or the tag above.
 - Refresh the fallback when ClickShield's tracker changes and before its Fingerprint key is
   rotated (ClickShield's `docs/tracker.md`, "Rotating the key"), with the same bytes in both taxi
   repos:

@@ -169,8 +169,14 @@ describe('landingKind', () => {
     assert.equal(landingKind('/?utm_source=google&utm_medium=organic', isAd), null)
     // An empty test token is no test link (cs.js reads it the same way).
     assert.equal(landingKind('/?cs_test=', isAd), null)
-    // Error pages render under an internal address whose own query holds no ad parameter.
+    // Error pages render under an internal address whose own query holds no ad parameter, built
+    // by ufo, which leaves ? and = raw inside the url value and encodes &.
     assert.equal(landingKind('/__nuxt_error?url=%2Fnope%3Fgclid%3Dabc&statusCode=404', isAd), null)
+    assert.equal(landingKind('/__nuxt_error?url=%2Fnope?gclid=abc&statusCode=404', isAd), null)
+    assert.equal(
+      landingKind('/__nuxt_error?url=%2Fnope?gad_source=1%26gclid=abc&statusCode=404', isAd),
+      null,
+    )
   })
 })
 
@@ -187,8 +193,17 @@ describe('textOf', () => {
 describe('createCopyHolder', () => {
   const OTHER = BODY.replace('var p', 'var q')
 
+  /** A body stream of `chunks` (strings), closed after the last one unless `stall` is set. */
+  const streamOf = (chunks, { stall = false } = {}) =>
+    new ReadableStream({
+      start(controller) {
+        for (const chunk of chunks) controller.enqueue(new TextEncoder().encode(chunk))
+        if (!stall) controller.close()
+      },
+    })
+
   /** A holder on a fake clock and a fake fetch whose answers the test hands out one by one. */
-  const setUp = () => {
+  const setUp = ({ timeoutMs } = {}) => {
     const clock = { now: 0 }
     const calls = []
     const lines = []
@@ -202,25 +217,25 @@ describe('createCopyHolder', () => {
       now: () => clock.now,
       log: (severity, message, fields) => lines.push({ severity, message, fields }),
       userAgent: 'clickshield-inline/test',
+      timeoutMs,
     })
     const settle = () => new Promise((resolve) => setImmediate(resolve))
-    /** Answers the newest fetch: a 200 JavaScript body, or { status, type, body }, or an error. */
+    /** Answers the newest fetch: a 200 JavaScript body, { status, type, body, stream }, or an error. */
     const answer = async (reply) => {
       const call = calls.at(-1)
       if (reply instanceof Error) call.reject(reply)
       else {
-        const { status = 200, type = 'text/javascript; charset=utf-8', body = '' } =
+        const { status = 200, type = 'text/javascript; charset=utf-8', body = '', stream } =
           typeof reply === 'string' ? { body: reply } : reply
         call.resolve({
           status,
           headers: { get: (name) => (name === 'content-type' ? type : null) },
-          text: async () => body,
-          body: null,
+          body: stream ?? streamOf([body]),
         })
       }
       await settle()
     }
-    return { clock, calls, lines, holder, answer, settle }
+    return { clock, calls, lines, holder, answer, settle, streamOf }
   }
 
   it('fetches at once, one refresh at a time, then again only once the copy is 5 minutes old', async () => {
@@ -359,6 +374,59 @@ describe('createCopyHolder', () => {
     await answer(new TypeError('fetch failed'))
 
     assert.equal(holder.current(), null)
+  })
+
+  it('gives up on a body that stops arriving, keeps its copy, and retries after 30 s', async () => {
+    const { clock, calls, holder, answer, lines, settle } = setUp({ timeoutMs: 40 })
+    holder.refreshIfDue()
+    await answer(BODY)
+
+    clock.now = FRESH_MS
+    holder.refreshIfDue()
+    await answer({ stream: streamOf([BODY.slice(0, 20)], { stall: true }) })
+    await new Promise((resolve) => setTimeout(resolve, 120))
+    await settle()
+
+    assert.equal(holder.current().label, COPY.label)
+    const failed = lines.filter((line) => line.message === 'cs.js not refreshed')
+    assert.equal(failed.length, 1)
+    assert.equal(failed[0].severity, 'INFO', 'a live copy is held')
+    const before = calls.length
+    clock.now = FRESH_MS + RETRY_MS[0] - 1
+    holder.refreshIfDue()
+    assert.equal(calls.length, before)
+    clock.now = FRESH_MS + RETRY_MS[0]
+    holder.refreshIfDue()
+    assert.equal(calls.length, before + 1)
+  })
+
+  it('reads no further than 32 KiB, and takes a bigger body as one that cannot run inline', async () => {
+    const { holder, answer, lines } = setUp()
+    holder.refreshIfDue()
+    const half = `/*${'x'.repeat(MAX_COPY_BYTES / 2)}*/`
+    await answer({ stream: streamOf([BODY, half, half, half]) })
+
+    assert.equal(holder.current(), null)
+    const warning = lines.find((line) => line.severity === 'WARNING')
+    assert.equal(warning.message.includes('cannot run inline'), true)
+    assert.equal(warning.fields.bytes, `over ${MAX_COPY_BYTES}`)
+  })
+
+  it('warns once when ad landings start getting the bundled fallback', async () => {
+    const { holder, answer, lines } = setUp()
+    holder.setFallback(OTHER)
+    holder.refreshIfDue()
+    await answer(new TypeError('fetch failed', { cause: new Error('unexpected redirect') }))
+
+    holder.current()
+    holder.current()
+
+    const failed = lines.find((line) => line.message === 'cs.js not refreshed')
+    assert.equal(failed.severity, 'WARNING', 'no live copy is held')
+    assert.equal(failed.fields.cause, 'Error: unexpected redirect')
+    const served = lines.filter((line) => line.message.startsWith('ad landings get the bundled fallback'))
+    assert.equal(served.length, 1)
+    assert.equal(served[0].severity, 'WARNING')
   })
 
   it('ignores a fallback that cannot run inline, with a warning', () => {
