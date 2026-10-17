@@ -32,6 +32,18 @@ export default defineNuxtConfig({
         { rel: 'apple-touch-icon', sizes: '180x180', href: '/apple-touch-icon.png' },
       ],
       script: [
+        // ClickShield's hosted tracker: click-ping, Fingerprint identification through this
+        // site's own proxy on metrics.taxizagreb24.com (the two data-fp-* attributes), then the ingest.
+        // First in the head so the ad click is recorded as early as possible. It replaced the
+        // Nuxt integration parked in legacy/clickshield-fingerprint/ (see README).
+        {
+          src: 'https://clickshield-web-370434332956.europe-west4.run.app/cs.js',
+          async: true,
+          fetchpriority: 'high',
+          tagPriority: 'critical',
+          'data-fp-agent': 'https://metrics.taxizagreb24.com/agent-m0zfpmtcwbpc',
+          'data-fp-endpoint': 'https://metrics.taxizagreb24.com/result-8ckw7w2h3ebt?region=eu',
+        },
         { src: 'https://www.googletagmanager.com/gtag/js?id=AW-17804137574', async: true },
       ],
     },
