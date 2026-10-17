@@ -16,7 +16,7 @@ import { createHash } from 'node:crypto'
 /** How long a copy is fresh: ClickShield's `max-age` for /cs.js. */
 export const FRESH_MS = 300_000
 
-/** How long one refresh may take. No page waits for a refresh; this only frees a hung one. */
+/** How long one refresh may take, body included. No page waits for it; this frees a hung one. */
 export const FETCH_TIMEOUT_MS = 10_000
 
 /** The waits after refreshes that got no answer: 30 s, doubling, then every 5 minutes. */
@@ -59,8 +59,7 @@ const keeps = (/** @type {string} */ name) =>
  * @typedef {{
  *   status: number,
  *   headers: { get(name: string): string | null },
- *   text(): Promise<string>,
- *   body?: { cancel(): Promise<void> } | null,
+ *   body?: ReadableStream<Uint8Array> | null,
  * }} CopyResponse
  * @typedef {(
  *   url: string,
@@ -78,7 +77,8 @@ export const logLine = (severity, message, fields = {}) => {
 
 /**
  * Whether the switch (`runtimeConfig.clickshield.inline`, env `NUXT_CLICKSHIELD_INLINE`) is on:
- * only `true`, `'true'` or `'on'`. Anything else is off, so an unclear value keeps the src tag.
+ * only `true`, `'true'` or `'on'`. Nuxt parses the env value first (destr): `false` (any case),
+ * `off`, `0` and an empty value turn it off; `null` and `undefined` keep the config default (on).
  * @param {unknown} value
  */
 export const inlineMode = (value) => value === true || value === 'true' || value === 'on'
@@ -171,6 +171,46 @@ export const swapTag = (chunk, src, copy) => {
 }
 
 /**
+ * The text of `response`'s body, read within `msLeft` and at most MAX_COPY_BYTES decoded bytes;
+ * null when it is larger (counted after decompression, so a compressed bomb stops early). Throws
+ * when the time runs out. Node's fetch may stop following the request's AbortSignal once the
+ * headers are in (undici drops that listener after a GC), so a body that stalls would keep a
+ * plain text() waiting for undici's own 300 s body timeout: the reader is cancelled by a timer of
+ * its own. A read cancelled that way resolves as done, so `late`, not `done`, says whether the
+ * text is whole.
+ * @param {CopyResponse} response
+ * @param {number} msLeft
+ * @returns {Promise<string | null>}
+ */
+const readBody = async (response, msLeft) => {
+  const reader = response.body?.getReader()
+  if (!reader) return ''
+  const decoder = new TextDecoder()
+  let late = false
+  const timer = setTimeout(() => {
+    late = true
+    reader.cancel().catch(() => undefined)
+  }, Math.max(0, msLeft))
+  try {
+    let text = ''
+    let bytes = 0
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (late) throw new Error('the cs.js body did not arrive in time')
+      if (done) return text + decoder.decode()
+      bytes += value.byteLength
+      if (bytes > MAX_COPY_BYTES) {
+        await reader.cancel().catch(() => undefined)
+        return null
+      }
+      text += decoder.decode(value, { stream: true })
+    }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
  * Swaps the first chunk of `head` (Nitro's `htmlContext.head`, changed in place) that holds the
  * cs.js tag, and says what happened.
  * @param {string[]} head
@@ -198,17 +238,29 @@ export const inlineHead = (head, src, copy) => {
  *   never on a timer). One refresh at a time; it never throws and is never awaited.
  * - A 200 with a JavaScript type is ClickShield's final answer: bytes that can run inline become
  *   the live copy; any others drop it, so a ClickShield revert reaches the ad landings.
- * - No answer (timeout, network error, redirect, another status or type) keeps the copy held:
- *   an outage never takes the copy away. The next try waits 30 s, doubling to every 5 minutes.
+ * - No answer (timeout, network error, redirect, another status or type, a body that does not
+ *   arrive in time) keeps the copy held: an outage never takes the copy away. The next try waits
+ *   30 s, doubling to every 5 minutes. A body over 32 KiB is read no further and counts as an
+ *   answer that cannot run inline. To stop the copies on purpose, ClickShield serves a 200
+ *   JavaScript body without data-cs-origin (or the hosts set NUXT_CLICKSHIELD_INLINE=false):
+ *   a 404, 5xx or redirect reads as an outage.
  * - `current()` is what an ad landing gets now: the live copy, else the bundled fallback while
  *   ClickShield has not answered since boot and a try has failed (never while the first try is
  *   still out, so a normal cold start never serves an old snapshot), else null (the src tag).
  *
  * @param {{
  *   url: string, fetch: CopyFetch, now: () => number, log: Log, userAgent: string,
- * }} options
+ *   timeoutMs?: number,
+ * }} options `timeoutMs` (default FETCH_TIMEOUT_MS) bounds the whole fetch, body included.
  */
-export const createCopyHolder = ({ url, fetch, now, log, userAgent }) => {
+export const createCopyHolder = ({
+  url,
+  fetch,
+  now,
+  log,
+  userAgent,
+  timeoutMs = FETCH_TIMEOUT_MS,
+}) => {
   const bootAt = now()
   /** @type {(Copy & { fetchedAt: number }) | null} */
   let live = null
@@ -222,6 +274,7 @@ export const createCopyHolder = ({ url, fetch, now, log, userAgent }) => {
   let failures = 0
   let nextAt = bootAt
   let warnedAt = -Infinity
+  let fallbackWarned = false
 
   const hashOf = (/** @type {Copy} */ copy) => copy.label.slice(copy.label.indexOf(':') + 1)
 
@@ -244,7 +297,7 @@ export const createCopyHolder = ({ url, fetch, now, log, userAgent }) => {
     try {
       const response = await fetch(url, {
         redirect: 'error',
-        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        signal: AbortSignal.timeout(timeoutMs),
         headers: { 'user-agent': userAgent },
       })
       const type = response.headers.get('content-type') ?? ''
@@ -252,11 +305,11 @@ export const createCopyHolder = ({ url, fetch, now, log, userAgent }) => {
         await response.body?.cancel().catch(() => undefined)
         throw new Error(`HTTP ${response.status} ${type}`.trim())
       }
-      const body = await response.text()
+      const body = await readBody(response, timeoutMs - (now() - startedAt))
       answered = true
       failures = 0
       nextAt = now() + FRESH_MS
-      if (inlinable(body)) {
+      if (body !== null && inlinable(body)) {
         const next = { ...copyOf('live', body), fetchedAt: now() }
         if (live?.label !== next.label) {
           log('INFO', 'copy updated', {
@@ -269,13 +322,13 @@ export const createCopyHolder = ({ url, fetch, now, log, userAgent }) => {
         live = next
         refused = ''
       } else {
-        const hash = copyOf('live', body).label
-        if (hash !== refused) {
+        const key = body === null ? 'too-large' : copyOf('live', body).label
+        if (key !== refused) {
           log('WARNING', "ClickShield's cs.js cannot run inline: ad landings get the src tag", {
-            bytes: Buffer.byteLength(body),
+            bytes: body === null ? `over ${MAX_COPY_BYTES}` : Buffer.byteLength(body),
             dropped: live?.label ?? null,
           })
-          refused = hash
+          refused = key
         }
         live = null
       }
@@ -283,8 +336,12 @@ export const createCopyHolder = ({ url, fetch, now, log, userAgent }) => {
       failures += 1
       if (!answered) failedBeforeAnswer = true
       nextAt = now() + RETRY_MS[Math.min(failures, RETRY_MS.length) - 1]
-      log('INFO', 'cs.js not refreshed', {
+      // INFO while a live copy is held (riding out an outage is its job); WARNING when ad landings
+      // get the bundled fallback or the src tag instead. A redirect, DNS and TLS failure all read
+      // 'fetch failed': the cause tells them apart.
+      log(live ? 'INFO' : 'WARNING', 'cs.js not refreshed', {
         error: String(error),
+        cause: error instanceof Error && error.cause !== undefined ? String(error.cause) : '',
         ms: now() - startedAt,
         holds: live?.label ?? (!answered && fallback ? fallback.label : null),
         retryInS: Math.round((nextAt - now()) / 1000),
@@ -318,7 +375,15 @@ export const createCopyHolder = ({ url, fetch, now, log, userAgent }) => {
     /** @returns {HeldCopy | null} */
     current() {
       if (live) return { ...live, ageS: Math.round((now() - live.fetchedAt) / 1000) }
-      if (fallback && !answered && failedBeforeAnswer) return { ...fallback, ageS: null }
+      if (fallback && !answered && failedBeforeAnswer) {
+        if (!fallbackWarned) {
+          fallbackWarned = true
+          log('WARNING', 'ad landings get the bundled fallback: ClickShield has not answered', {
+            fallback: fallback.label,
+          })
+        }
+        return { ...fallback, ageS: null }
+      }
       return null
     },
   }
