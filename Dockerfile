@@ -9,6 +9,8 @@ COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 
 COPY . .
+# The inline cs.js copy's tests: a failing case stops the image build, so nothing deploys.
+RUN node --test server/clickshield/inline.test.mjs
 RUN pnpm build
 
 # Stage 2: Production
