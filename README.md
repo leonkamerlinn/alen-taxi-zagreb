@@ -20,7 +20,33 @@ backend for click-fraud analysis. Also loads **Google Ads gtag** for conversion 
 - **Google Ads gtag** (`AW-17804137574`, `plugins/gtag.client.ts`) · Google Fonts (Outfit)
 - **pnpm** · **Docker** (node:20-alpine, serves on `:8080`)
 
-## How fingerprinting works
+## Tracking: ClickShield's hosted script
+
+Since 2026-10-17 the site tracks paid Google Ads clicks with ClickShield's hosted script: one tag,
+first in the page head (`app.head.script` in [`nuxt.config.ts`](nuxt.config.ts)).
+
+```html
+<script async src="https://clickshield-web-370434332956.europe-west4.run.app/cs.js"
+  data-fp-agent="https://metrics.taxizagreb24.com/agent-m0zfpmtcwbpc"
+  data-fp-endpoint="https://metrics.taxizagreb24.com/result-8ckw7w2h3ebt?region=eu"></script>
+```
+
+- `cs.js` sends the click-ping first, identifies the device with Fingerprint through this site's
+  own proxy on `metrics.taxizagreb24.com` (the two `data-fp-*` attributes), then posts the ingest. It
+  keeps the old integration's device token (`cs_device_token`) and `window.__cs*` flags, so a
+  returning device stays one device.
+- Its Fingerprint key comes from ClickShield (`FINGERPRINT_PUBLIC_API_KEY`), so the
+  `NUXT_PUBLIC_FINGERPRINT_*` and `NUXT_PUBLIC_CLICKSHIELD_INGEST_URL` settings below are no longer
+  read.
+- Debug: open a page with `?cs_debug=1` and read the `[ClickShield]` console lines. Reference:
+  ClickShield's `docs/tracker.md`.
+- The previous Nuxt integration is parked, not deleted, in
+  [`legacy/clickshield-fingerprint/`](legacy/clickshield-fingerprint/), outside `plugins/`, so Nuxt
+  no longer registers it. To roll back, revert the commit that moved it there and push `main`.
+
+The section below describes that previous integration.
+
+## How fingerprinting worked before the hosted script
 
 Fingerprint Pro is **not always-on**. The agent loads only when the visit is paid Google Ads
 traffic, which keeps the (billed) Fingerprint quota focused on the clicks that matter for fraud
