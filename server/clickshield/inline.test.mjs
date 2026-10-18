@@ -363,6 +363,76 @@ describe('createCopyHolder', () => {
     assert.equal(holder.current().label, COPY.label, 'a live copy takes over')
   })
 
+  it('lets a page wait for the first answer since boot: the live copy, or the stop', async () => {
+    for (const [reply, expected] of [
+      [BODY, COPY.label],
+      ['"use strict";(()=>{})();', null],
+    ]) {
+      const { holder, answer, settle } = setUp()
+      holder.setFallback(OTHER)
+      holder.refreshIfDue()
+      let done = false
+      const waiting = holder.firstAnswer(5_000).then(() => {
+        done = true
+      })
+      await settle()
+      assert.equal(done, false, 'the first fetch is out')
+
+      await answer(reply)
+      await waiting
+      assert.equal(holder.current()?.label ?? null, expected)
+    }
+  })
+
+  it('waits for the first answer at most the given time, then no page waits again', async () => {
+    const { holder, answer, settle } = setUp()
+    holder.setFallback(OTHER)
+    holder.refreshIfDue()
+    const startedAt = Date.now()
+
+    await holder.firstAnswer(30)
+
+    assert.equal(Date.now() - startedAt >= 25, true)
+    assert.equal(holder.current(), null, 'no answer and no failure yet: not the fallback')
+    let done = false
+    holder.firstAnswer(5_000).then(() => {
+      done = true
+    })
+    await settle()
+    assert.equal(done, true, 'the first try is still out, but one page has waited for it')
+    await answer(BODY)
+    assert.equal(holder.current().label, COPY.label)
+  })
+
+  it('never waits for a later try: after an answer, after a failure, or with no try out', async () => {
+    const resolvesAtOnce = async (holder, settle) => {
+      let done = false
+      holder.firstAnswer(5_000).then(() => {
+        done = true
+      })
+      await settle()
+      return done
+    }
+    const fresh = setUp()
+    assert.equal(await resolvesAtOnce(fresh.holder, fresh.settle), true, 'no try started')
+
+    const answered = setUp()
+    answered.holder.refreshIfDue()
+    await answered.answer(BODY)
+    answered.clock.now = FRESH_MS
+    answered.holder.refreshIfDue()
+    assert.equal(await resolvesAtOnce(answered.holder, answered.settle), true, 'a refresh is out')
+
+    const failed = setUp()
+    failed.holder.setFallback(OTHER)
+    failed.holder.refreshIfDue()
+    await failed.answer(new TypeError('fetch failed'))
+    failed.clock.now = RETRY_MS[0]
+    failed.holder.refreshIfDue()
+    assert.equal(await resolvesAtOnce(failed.holder, failed.settle), true, 'a retry is out')
+    assert.equal(failed.holder.current().label, copyOf('fallback', OTHER).label)
+  })
+
   it('never serves the fallback after a final answer, even one that drops the copy', async () => {
     const { clock, holder, answer } = setUp()
     holder.setFallback(OTHER)

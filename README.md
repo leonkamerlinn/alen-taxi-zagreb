@@ -57,7 +57,10 @@ runs them before the build, so a failing test stops the deploy.
 - Each server instance keeps one copy. It refreshes at the first request after the copy is 5
   minutes old (Cloud Run gives an instance no CPU between requests), and that request still gets
   the older copy, so a page can get a copy up to about 20 minutes old, longer while ClickShield
-  cannot be reached. No page waits for a refresh.
+  cannot be reached. No page waits for a refresh, with one exception: the ad click that starts an
+  instance renders before the instance's first copy is in, so that page (and any ad landing
+  rendered while that first fetch is out) waits for it, at most 1 s; on TIM it came 13-70 ms
+  after the render. If it takes longer, those pages keep the tag above and later ones don't wait.
 - If ClickShield does not answer (an outage, a 404, 5xx or redirect, a body that does not arrive
   within 10 s), the instance keeps the copy it has. If it answers with a cs.js that cannot run
   inline (no `data-cs-origin`, or over 32 KiB), ad landings get the tag above again.
@@ -75,10 +78,11 @@ runs them before the build, so a failing test stops the deploy.
   `curl -s 'https://taxizagreb24.com/?gad_source=cs-verify' | grep -o 'data-cs-copy="[^"]*"'`. It reads
   `live:` or `fallback:` plus the first 12 characters of the copy's SHA-256, the same hash as
   ClickShield's ETag for `/cs.js`.
-- Logs: one `[clickshield] ad landing` line per ad landing (`mode`, `reason`, `copy`), and one
-  per refresh that changes or fails. `reason: no-tag` means the tag above changed shape (a Nuxt
-  or unhead upgrade, a new `src`): the plugin then leaves the page as it is. A WARNING means ad
-  landings run without a live copy: the bundled fallback, or the tag above.
+- Logs: one `[clickshield] ad landing` line per ad landing (`mode`, `reason`, `copy`, and
+  `waitedMs`, the wait above), and one per refresh that changes or fails. `reason: no-tag` means
+  the tag above changed shape (a Nuxt or unhead upgrade, a new `src`): the plugin then leaves the
+  page as it is. A WARNING means ad landings run without a live copy: the bundled fallback, or
+  the tag above.
 - Refresh the fallback when ClickShield's tracker changes and before its Fingerprint key is
   rotated (ClickShield's `docs/tracker.md`, "Rotating the key"), with the same bytes in both taxi
   repos:

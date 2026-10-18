@@ -7,17 +7,27 @@
  * Every page loads cs.js with the `<script src>` in nuxt.config.ts. On an ad landing, and on an
  * install test link, the plugin replaces that tag in place with a copy of the bytes ClickShield
  * serves, so the click-ping leaves while the browser reads the head instead of after a download
- * from another origin. Rendering only reads the copy this instance holds; refreshes run in the
- * background. Whatever goes wrong, the page keeps the `src` tag it has today. ClickShield's side
- * of it: docs/tracker.md, "An inline copy".
+ * from another origin. Rendering reads the copy this instance holds and refreshes run in the
+ * background; the only pages that wait are ad landings rendered before the instance's first
+ * answer from ClickShield (FIRST_ANSWER_WAIT_MS). Whatever goes wrong, the page keeps the `src`
+ * tag it has today. ClickShield's side of it: docs/tracker.md, "An inline copy".
  */
 import { createHash } from 'node:crypto'
 
 /** How long a copy is fresh: ClickShield's `max-age` for /cs.js. */
 export const FRESH_MS = 300_000
 
-/** How long one refresh may take, body included. No page waits for it; this frees a hung one. */
+/** How long one refresh may take, body included. This frees a hung one; no page waits that long. */
 export const FETCH_TIMEOUT_MS = 10_000
+
+/**
+ * How long an ad landing rendered before the instance's first answer waits for it: the ad click
+ * that starts an instance (on a site that sleeps between ad clicks, most of them). Its render and
+ * the boot fetch end together (on TIM the fetch came back 13-70 ms after the render), so without
+ * the wait the page gets the src tag. A bundled snapshot would need no wait, but ClickShield's
+ * changes (a fix, a stop, a new key) would not reach those pages until the next taxi deploy.
+ */
+export const FIRST_ANSWER_WAIT_MS = 1_000
 
 /** The waits after refreshes that got no answer: 30 s, doubling, then every 5 minutes. */
 export const RETRY_MS = [30_000, 60_000, 120_000, 240_000, 300_000]
@@ -247,6 +257,11 @@ export const inlineHead = (head, src, copy) => {
  * - `current()` is what an ad landing gets now: the live copy, else the bundled fallback while
  *   ClickShield has not answered since boot and a try has failed (never while the first try is
  *   still out, so a normal cold start never serves an old snapshot), else null (the src tag).
+ * - `firstAnswer(ms)` is what an ad landing rendered while the first try since boot is still out
+ *   awaits before it reads `current()`: it resolves when that try ends, with an answer or a
+ *   failure, or after `ms`, and at once when no first try is out. So ClickShield's answer, a stop
+ *   included, decides that page too; after `ms` it gets the src tag, and so does every page after
+ *   it without waiting until the try ends. Later tries are never waited for.
  *
  * @param {{
  *   url: string, fetch: CopyFetch, now: () => number, log: Log, userAgent: string,
@@ -271,6 +286,10 @@ export const createCopyHolder = ({
   let answered = false
   let failedBeforeAnswer = false
   let inflight = false
+  /** @type {Promise<void> | null} The try in flight, settling when it ends. */
+  let running = null
+  /** Whether a page has already waited the whole time for the first try: no page waits again. */
+  let waitedOut = false
   let failures = 0
   let nextAt = bootAt
   let warnedAt = -Infinity
@@ -356,7 +375,26 @@ export const createCopyHolder = ({
     /** Starts a refresh when one is due and none is running. */
     refreshIfDue() {
       if (inflight || now() < nextAt) return
-      refresh().catch(() => undefined)
+      running = refresh().catch(() => undefined)
+    },
+    /**
+     * Resolves when the first try since boot ends or after `ms`; at once when none is out, or
+     * once a page has waited `ms` for it (a hung ClickShield then delays only the pages that
+     * started waiting before that).
+     * @param {number} ms
+     * @returns {Promise<void>}
+     */
+    firstAnswer(ms) {
+      if (answered || failedBeforeAnswer || waitedOut || !inflight || !running) return Promise.resolve()
+      /** @type {ReturnType<typeof setTimeout> | undefined} */
+      let timer
+      const late = new Promise((resolve) => {
+        timer = setTimeout(() => {
+          waitedOut = true
+          resolve(undefined)
+        }, ms)
+      })
+      return Promise.race([running, late]).then(() => clearTimeout(timer))
     },
     /**
      * The bundled snapshot, used only while ClickShield has not answered since boot.
