@@ -6,9 +6,11 @@
  * - Every page keeps the `<script src=".../cs.js">` from nuxt.config.ts by default. On an ad
  *   landing, `render:html` swaps that tag IN PLACE for the copy this instance holds, so the copy
  *   runs where the tag was: after charset and title, before every stylesheet.
- * - Rendering only reads memory, so no page ever waits on ClickShield. The copy refreshes in the
- *   background: at boot, then at the start of the first request after it is due (Cloud Run gives
- *   an instance CPU only while it serves a request).
+ * - Rendering reads memory, and the copy refreshes in the background: at boot, then at the start
+ *   of the first request after it is due (Cloud Run gives an instance CPU only while it serves a
+ *   request). The only pages that wait on ClickShield are ad landings rendered before the boot
+ *   fetch is back, usually just the ad click that started the instance: at most
+ *   FIRST_ANSWER_WAIT_MS, then they keep the src tag.
  * - Everything is inside try/catch: a throw at plugin init would stop the server from booting, and
  *   a throw in render:html would answer the page with a 500. Any miss leaves the src tag.
  * - WARNING: never cache the HTML of these pages (routeRules swr/isr/cache, a CDN). A cached ad
@@ -19,6 +21,7 @@
 import { detectAdTraffic } from '~/composables/usePageContext'
 import {
   createCopyHolder,
+  FIRST_ANSWER_WAIT_MS,
   inlineHead,
   inlineMode,
   landingKind,
@@ -61,10 +64,13 @@ export default defineNitroPlugin((nitroApp) => {
       })
     }
 
-    nitroApp.hooks.hook('render:html', (html, { event }) => {
+    // Nitro awaits render:html, so the ad landing rendered before the boot fetch is back can wait.
+    nitroApp.hooks.hook('render:html', async (html, { event }) => {
       try {
         const kind = landingKind(event.path, (query) => detectAdTraffic(query).isAd)
         if (!kind) return
+        const waitStartedAt = Date.now()
+        if (holder) await holder.firstAnswer(FIRST_ANSWER_WAIT_MS)
         const copy = holder ? holder.current() : null
         const reason = holder ? inlineHead(html.head, CS_JS_URL, copy) : 'off'
         logLine('INFO', kind === 'test' ? 'install test' : 'ad landing', {
@@ -72,6 +78,7 @@ export default defineNitroPlugin((nitroApp) => {
           reason,
           copy: reason === 'inlined' && copy ? copy.label : null,
           ageS: reason === 'inlined' && copy ? copy.ageS : null,
+          waitedMs: Date.now() - waitStartedAt,
           dest: getRequestHeader(event, 'sec-fetch-dest') ?? null,
           purpose: getRequestHeader(event, 'sec-purpose') ?? null,
         })
