@@ -26,7 +26,7 @@ Since 2026-10-17 the site tracks paid Google Ads clicks with ClickShield's hoste
 first in the page head (`app.head.script` in [`nuxt.config.ts`](nuxt.config.ts)).
 
 ```html
-<script async src="https://clickshield-web-370434332956.europe-west4.run.app/cs.js"
+<script async src="https://getclickshield.com/cs.js"
   data-fp-agent="https://metrics.taxizagreb24.com/agent-m0zfpmtcwbpc"
   data-fp-endpoint="https://metrics.taxizagreb24.com/result-8ckw7w2h3ebt?region=eu"></script>
 ```
@@ -88,7 +88,7 @@ runs them before the build, so a failing test stops the deploy.
   repos:
 
   ```bash
-  curl -sS --fail https://clickshield-web-370434332956.europe-west4.run.app/cs.js \
+  curl -sS --fail https://getclickshield.com/cs.js \
     -o server/assets/clickshield/cs-fallback.txt
   grep -c data-cs-origin server/assets/clickshield/cs-fallback.txt            # must print 1
   grep -ciE '</script|<script|<!--' server/assets/clickshield/cs-fallback.txt  # must print 0
@@ -188,7 +188,7 @@ keys set (locally in `.env`, or just test against the live site) — otherwise t
 
 ```
 NUXT_PUBLIC_FINGERPRINT_PUBLIC_API_KEY=AyRoy4mfOeDlCinfWqpx
-NUXT_PUBLIC_CLICKSHIELD_INGEST_URL=https://clickshield-web-370434332956.europe-west4.run.app
+NUXT_PUBLIC_CLICKSHIELD_INGEST_URL=https://getclickshield.com
 ```
 
 ### 1. Watch the right requests
@@ -277,7 +277,7 @@ gcloud run deploy alen-taxi-zagreb \
   --project project-57147346-010b-465c-a23 \
   --region europe-west4 \
   --allow-unauthenticated \
-  --update-env-vars 'NUXT_PUBLIC_FINGERPRINT_PUBLIC_API_KEY=AyRoy4mfOeDlCinfWqpx,NUXT_PUBLIC_FINGERPRINT_REGION=eu,NUXT_PUBLIC_CLICKSHIELD_INGEST_URL=https://clickshield-web-370434332956.europe-west4.run.app'
+  --update-env-vars 'NUXT_PUBLIC_FINGERPRINT_PUBLIC_API_KEY=AyRoy4mfOeDlCinfWqpx,NUXT_PUBLIC_FINGERPRINT_REGION=eu,NUXT_PUBLIC_CLICKSHIELD_INGEST_URL=https://getclickshield.com'
 ```
 
 > Always deploy to **`europe-west4`** — that's the region the live domain maps to.

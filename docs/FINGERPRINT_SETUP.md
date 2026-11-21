@@ -271,7 +271,7 @@ fingerprinting is personal data under EU/GDPR, so:
 | `NUXT_PUBLIC_FINGERPRINT_REGION` | env var | `eu` |
 | `NUXT_PUBLIC_FINGERPRINT_ENDPOINT` | env var | Custom subdomain API endpoint (optional) |
 | `NUXT_PUBLIC_FINGERPRINT_SCRIPT_URL_PATTERN` | env var | Custom subdomain script URL (optional) |
-| `NUXT_PUBLIC_CLICKSHIELD_INGEST_URL` | env var | ClickShield origin for browser ingest (e.g. `https://clickshield-….run.app`) |
+| `NUXT_PUBLIC_CLICKSHIELD_INGEST_URL` | env var | ClickShield origin for browser ingest (e.g. `https://getclickshield.com`) |
 
 **Key files added**
 

@@ -65,7 +65,7 @@ export default defineNuxtConfig({
       fingerprintEndpoint: '', // NUXT_PUBLIC_FINGERPRINT_ENDPOINT (custom subdomain, optional)
       fingerprintScriptUrlPattern: '', // NUXT_PUBLIC_FINGERPRINT_SCRIPT_URL_PATTERN (optional)
       // ClickShield backend origin — the browser posts the requestId straight here.
-      clickshieldIngestUrl: '', // NUXT_PUBLIC_CLICKSHIELD_INGEST_URL (e.g. https://clickshield-web-...run.app)
+      clickshieldIngestUrl: '', // NUXT_PUBLIC_CLICKSHIELD_INGEST_URL (e.g. https://getclickshield.com)
     },
   },
 
