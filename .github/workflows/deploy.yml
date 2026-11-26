@@ -12,7 +12,7 @@ env:
   REGION: europe-west1
   REGISTRY_REGION: europe-west4
   SERVICE: alen-taxi-zagreb
-  CLICKSHIELD_INGEST_URL: https://clickshield-web-370434332956.europe-west4.run.app
+  CLICKSHIELD_INGEST_URL: https://getclickshield.com
 
 jobs:
   deploy:

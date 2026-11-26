@@ -20,7 +20,7 @@ import {
 } from './inline.mjs'
 import { CS_JS_URL } from './source.mjs'
 
-const ORIGIN = 'https://clickshield-web-370434332956.europe-west4.run.app'
+const ORIGIN = 'https://getclickshield.com'
 
 /** The cs.js tag of each site as it rendered live on 2026-10-17, with what comes before and after. */
 const TIM_TAG =
